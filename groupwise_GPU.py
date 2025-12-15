@@ -100,11 +100,11 @@ def evaluate_group_gpu(flat_params, K, centers, sampled_positions_list,
 
 
     # INTER-VERTEBRAL DISPLACEMENT PENALTY
-    lambda_axes = 0.0005
+    lambda_axes = 0.01
     axes_margins = { # mm values
         'LM': 3.0,  # STRICT - very little Lateral-Medial sliding
         'AP': 3.0,  # Anterior-Posterior margin Anterior-Posterior
-        'SI': 15.0   # RELAXED - allow free movement
+        'SI': 5.0   # RELAXED - allow some compression of IVD
     }
     # compute penalty per axes
     axes_penalty = compute_inter_vertebral_displacement_penalty(
