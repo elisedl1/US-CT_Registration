@@ -8,11 +8,13 @@ import cma
 from glob import glob
 import multiprocessing as mp 
 from functools import partial
+import matplotlib.pyplot as plt
 
 from utils.file_parser import SlicerJsonTagParser, PyNrrdParser
-from utils.helpers import sitk_euler_to_matrix
+from utils.helpers import sitk_euler_to_matrix, compute_inter_vertebral_displacement_penalty
 from utils.similarity import IntensitySimilarity
 from extra.centroid import compute_centroid
+from extra.CT_axis import compute_ct_axes
 
 
 def compute_case_tre(flat_params):
@@ -35,11 +37,13 @@ def compute_case_tre(flat_params):
 
 def evaluate_group_gpu(flat_params, K, centers, sampled_positions_list,
                        moving_parsers, fixed_parsers,
-                       case_centroids, orig_dists, device='cuda'):
+                       case_centroids, orig_dists, case_axes,
+                       device='cuda'):
 
     total_sim = 0.0
     transforms_params = []
     moved_centroids = []
+    transforms_list = []
 
     for k in range(K):
         params = torch.tensor(flat_params[6*k:6*(k+1)], dtype=torch.float32, device=device)
@@ -50,6 +54,7 @@ def evaluate_group_gpu(flat_params, K, centers, sampled_positions_list,
         tx.SetCenter(centers[k].tolist())
         tx.SetParameters(flat_params[6*k:6*(k+1)].tolist())
         tx_inv = tx.GetInverse() # inverse transformm CT -> US
+        transforms_list.append(tx_inv) # inverse or regular?????
 
         # sampled CT surface points - x from CT
         sampled_positions = sampled_positions_list[k].to(device=device, dtype=torch.float64) 
@@ -80,7 +85,8 @@ def evaluate_group_gpu(flat_params, K, centers, sampled_positions_list,
     mean_sim = total_sim / float(K)
 
 
-    # centroid distance penalty
+    # CENTROID DISTANCE PENALTY
+    # penalize if centroids become < margin_mm apart
     lambda_centroid = 0.0
     margin_mm = 4.0
     centroid_penalty = 0.0
@@ -92,16 +98,34 @@ def evaluate_group_gpu(flat_params, K, centers, sampled_positions_list,
                 centroid_penalty += diff**2
         centroid_penalty /= float(K-1)
 
+
+    # INTER-VERTEBRAL DISPLACEMENT PENALTY
+    lambda_axes = 0.0005
+    axes_margins = { # mm values
+        'LM': 3.0,  # STRICT - very little Lateral-Medial sliding
+        'AP': 3.0,  # Anterior-Posterior margin Anterior-Posterior
+        'SI': 15.0   # RELAXED - allow free movement
+    }
+    # compute penalty per axes
+    axes_penalty = compute_inter_vertebral_displacement_penalty(
+        moved_centroids, case_centroids, case_axes, transforms_list, axes_margins
+    )
+
+
+
+    # # debug printer
     # print(
     #     f"mean_sim: {mean_sim:.4f}, "
-    #     f"adjacency_penalty: {lambda_smooth * adjacency_penalty:.4f}, "
     #     f"centroid_penalty: {lambda_centroid * centroid_penalty:.4f}, "
-    #     f"collision_penalty: {collision_penalty:.4f}, "
-    #     f"total_loss: {-float(mean_sim) + lambda_smooth * adjacency_penalty + lambda_centroid * centroid_penalty + collision_penalty:.4f}"
+    #     f"axes_penalty: {lambda_axes * axes_penalty:.4f}, "
+    #     f"total_loss: {-float(mean_sim) + lambda_centroid * centroid_penalty + lambda_axes * axes_penalty:.4f}"
     # )
 
+    total_loss = -float(mean_sim) + (lambda_centroid * centroid_penalty) + (lambda_axes * axes_penalty)
 
-    return -float(mean_sim) + (lambda_centroid * centroid_penalty)
+
+    return total_loss, float(mean_sim), float(axes_penalty * lambda_axes)
+    # return -float(mean_sim) + (lambda_centroid * centroid_penalty) + (lambda_axes * axes_penalty)
 
 
 if __name__ == "__main__":
@@ -112,7 +136,7 @@ if __name__ == "__main__":
     output_dir = '/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans/intra1/output_python_cma_group_allcases'
     os.makedirs(output_dir, exist_ok=True)
 
-    # Gather case folders (assumes L1..L4 style)
+    # gather case folders (assumes L1..L4 style)
     case_names = sorted([
         name for name in os.listdir(cases_dir)
         if os.path.isdir(os.path.join(cases_dir, name)) and name.startswith('L')
@@ -127,6 +151,7 @@ if __name__ == "__main__":
     centers = []
     case_landmarks = []
     case_output_dirs = []
+    case_axes = []
 
     for case in case_names:
         print(f"\nPreparing case {case} ...")
@@ -165,6 +190,7 @@ if __name__ == "__main__":
         )
         centers.append(center)
 
+
         # read in landmarks
         target_file = f"/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans/intra1/landmarks/US_{case}_landmarks_intra.mrk.json" # matches fixed US (intra)
         source_file = f"/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans/intra1/landmarks/CT_{case}_landmarks.mrk.json" # matches moving CT
@@ -185,6 +211,19 @@ if __name__ == "__main__":
         case_output_dirs.append(case_out)
 
 
+        # compute CT anatomical axes
+        ct_seg_file = os.path.join(cases_dir, case, f'CT_{case}.nrrd')
+        if not os.path.exists(ct_seg_file):
+            raise FileNotFoundError(f"CT segmentation not found for case {case}")
+        
+        LM_axis, AP_axis, SI_axis = compute_ct_axes(ct_seg_file)
+        case_axes.append((LM_axis, AP_axis, SI_axis))
+        # print(f"  CT axes computed for {case}")
+        # print(f"    LM: {LM_axis}")
+        # print(f"    AP: {AP_axis}")
+        # print(f"    SI: {SI_axis}")
+
+
     # compute centroids of fixed CT once
     case_centroids = []
     for case in case_names:
@@ -195,7 +234,7 @@ if __name__ == "__main__":
 
         c = compute_centroid(seg_file)
         case_centroids.append(np.array(c))
-    print("centroids: ", case_centroids)
+    # print("\nCentroids:", case_centroids)
 
 
     # compute original inter-centroid distances once
@@ -205,9 +244,6 @@ if __name__ == "__main__":
         orig_dists.append(float(d))
     orig_dists = np.array(orig_dists)  # shape (K-1,)
 
-
-    # compute CT anatomical axes 
-    # TODO THIS
 
     # K = number of structures
     K = len(case_names)
@@ -233,6 +269,7 @@ if __name__ == "__main__":
         fixed_parsers=fixed_parsers,
         case_centroids=case_centroids,
         orig_dists=orig_dists,
+        case_axes=case_axes,
         device='cuda'
     )
 
@@ -279,11 +316,27 @@ if __name__ == "__main__":
     start_time = time.time()
     it = 0
 
+    # track metrics
+    loss_history = []
+    mean_sim_history = []
+    axes_penalty_history = []
+
+    # while not es.stop():
+    #     solutions = es.ask()
+    #     values = [partial_eval(sol) for sol in solutions] 
+    #     es.tell(solutions, values)
+    #     it += 1
+
     while not es.stop():
         solutions = es.ask()
-        values = [partial_eval(sol) for sol in solutions] 
+        values = []
+        for sol in solutions:
+            val, mean_sim, axes_pen = partial_eval(sol)  # unpack
+            values.append(val)
+            mean_sim_history.append(mean_sim)
+            axes_penalty_history.append(axes_pen)
+            loss_history.append(val)
         es.tell(solutions, values)
-        it += 1
 
     elapsed = time.time() - start_time
     mins = int(elapsed // 60)
@@ -291,7 +344,7 @@ if __name__ == "__main__":
     print(f"\nGroup CMA finished after {it} iterations — time {mins} min {secs:.2f} sec")
 
     best_flat = es.result.xbest
-    print("Best first-6 params (case 1):", best_flat[:6])
+    # print("Best first-6 params (case 1):", best_flat[:6])
 
 
     # save transforms per-case
@@ -316,6 +369,26 @@ if __name__ == "__main__":
         else:
             print()
             print(f"{case}: TRE = {tre:.4f}")
+
+    mean_sim_arr = np.array(mean_sim_history)
+    axes_penalty_arr = np.array(axes_penalty_history)
+
+    plt.figure(figsize=(10,6))
+
+    # marker only: use linestyle='' or 'None'
+    plt.plot(mean_sim_arr, 'o', label='Mean Similarity', linestyle='None')
+    plt.plot(axes_penalty_arr, 's', label='Axes Penalty', linestyle='None')
+
+    plt.xlabel('CMA Evaluation Step')
+    plt.ylabel('Value')
+    plt.title('CMA Optimization Metrics per Evaluation')
+    plt.legend()
+    plt.grid(True)
+    plt.tight_layout()
+
+    plt.savefig("optimization_metrics.png", dpi=150)
+    plt.close()
+    print("Saved optimization_metrics.png in current directory.")
 
     print("DONE.")
 
