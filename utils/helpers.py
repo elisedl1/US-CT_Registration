@@ -6,6 +6,30 @@ from scipy.fft import fftn, ifftn, fftshift
 from scipy.ndimage import gaussian_filter
 import SimpleITK as sitk
 
+def make_hinge_axes(json_path):
+
+    # load JSON
+    with open(json_path, 'r') as f:
+        data = json.load(f)
+
+    # extract points
+    control_points = data['markups'][0]['controlPoints']
+    points = {p['label']: np.array(p['position']) for p in control_points}
+
+    point1 = points['HingeCenter']
+    point2 = points['DiscNormEnd']
+    point3 = points['HingeNormEnd']
+    
+    # compute hinge axis
+    hinge_axis = (point2 - point1)
+    hinge_axis /= np.linalg.norm(hinge_axis) 
+
+    # compute disc axis
+    disc_axis = (point3 - point1)
+    disc_axis /= np.linalg.norm(disc_axis) 
+
+    return hinge_axis, disc_axis
+
 
 def normalize_hessian(hessian: torch.tensor) -> torch.Tensor:
     hessian_magnitude = torch.sum(hessian ** 2, axis=(-1, -2)) ** 0.5
@@ -30,6 +54,23 @@ def create_image_mask(
     bg = binary_dilation(bg, iterations=dilation_size)
     return torch.tensor(~bg)
 
+def create_boundary_exclusion_mask(image: torch.Tensor, erosion_size: int) -> torch.Tensor:
+    """
+    Create a mask that excludes a margin along the US boundary.
+    - image: 3D US volume (torch.Tensor)
+    - erosion_size: number of voxels to exclude from boundary
+    """
+    # 1. Background: voxels with value 0
+    bg = (image == 0).cpu().numpy()  # boolean
+
+    # 2. Dilate background inwards to exclude boundary voxels
+    # binary_dilation expands True values (background) into the foreground
+    bg_dilated = binary_dilation(bg, iterations=erosion_size)
+
+    # 3. Invert: True = inside US but away from boundary
+    mask = ~bg_dilated
+
+    return torch.tensor(mask, dtype=torch.bool, device=image.device)
 
 
 def euler_matrix(rx, ry, rz, t):
@@ -48,6 +89,7 @@ def euler_matrix(rx, ry, rz, t):
 
 
 def sitk_euler_to_matrix(tx):
+    """Convert SimpleITK Euler3DTransform -> 4x4 numpy affine matrix."""
     # Extract rotation as a direction cosine matrix
     R = np.array(tx.GetMatrix()).reshape(3, 3)
 
@@ -170,87 +212,6 @@ def export_samples_to_slicer_json(
 
     print(f"Saved {samples_count} samples (in LPS mm coords) to {output_path}")
 
-
-def monogenic_filter(img, scale=2):
-    # returns 
-
-    import numpy as np
-from scipy.fft import fftn, ifftn, fftshift
-
-
-def monogenic_filter_3d(img, scale=2):
-    """
-    Apply monogenic filter
-    => amplitude measure local signal strength 
-    => intensity -> normalized local energy
-    
-    Returns:
-        A: amplitude
-        O_x, O_y, O_z: orientation components
-    """
-    H, W, D = img.shape
-    
-    # fourier transform
-    F = fftn(img)
-    
-    # frequency grids
-    u = np.fft.fftfreq(W)
-    v = np.fft.fftfreq(H)
-    w = np.fft.fftfreq(D)
-    U, V, W_ = np.meshgrid(u, v, w, indexing='xy')
-    
-    # riesz transform filters
-    magnitude = np.sqrt(U**2 + V**2 + W_**2) + 1e-15
-    R_x = 1j * U / magnitude
-    R_y = 1j * V / magnitude
-    R_z = 1j * W_ / magnitude
-    
-    # gaussian bandpass / scale
-    radius = magnitude
-    bandpass = np.exp(-(radius**2)/(2*scale**2))
-    
-    # apply filters
-    F_Rx = F * R_x * bandpass
-    F_Ry = F * R_y * bandpass
-    F_Rz = F * R_z * bandpass
-    
-    r_x = np.real(ifftn(F_Rx))
-    r_y = np.real(ifftn(F_Ry))
-    r_z = np.real(ifftn(F_Rz))
-    
-    # amplitude
-    A = np.sqrt(img**2 + r_x**2 + r_y**2 + r_z**2)
-    
-    # orientation components
-    O_x = r_x / (A + 1e-15)
-    O_y = r_y / (A + 1e-15)
-    O_z = r_z / (A + 1e-15)
-    
-    return A, O_x, O_y, O_z
-
-
-def mean_curvature_3d(volume: torch.Tensor, voxel_size) -> torch.Tensor:
-    # gradients (first derivatives)
-    f_y, f_x, f_z = torch.gradient(volume, spacing=voxel_size)
-    
-    # second derivatives
-    f_xx, f_xy, f_xz = torch.gradient(f_x, spacing=voxel_size)
-    _,   f_yy, f_yz = torch.gradient(f_y, spacing=voxel_size)
-    _,   _,   f_zz = torch.gradient(f_z, spacing=voxel_size)
-        
-    # numerator of mean curvature
-    numerator = (
-        (1 + f_y**2 + f_z**2) * f_xx +
-        (1 + f_x**2 + f_z**2) * f_yy +
-        (1 + f_x**2 + f_y**2) * f_zz -
-        2*(f_x*f_y*f_xy + f_x*f_z*f_xz + f_y*f_z*f_yz)
-    )
-    
-    # denominator
-    denominator = 2 * (f_x**2 + f_y**2 + f_z**2 + 1e-15)**(3/2)
-    
-    H = numerator / denominator
-    return H
 
 def hessian_determinant(hessian: torch.Tensor) -> torch.Tensor:
     H, W, D, _, _ = hessian.shape

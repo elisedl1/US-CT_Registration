@@ -1,75 +1,10 @@
 from typing import Tuple
-
 import numpy as np
 from scipy.ndimage import gaussian_filter
 import torch
 import json
 import SimpleITK as sitk 
 
-# class PyNrrdParser:
-#     """
-#     NRRD/SimpleITK image parser for voxel <-> physical coordinate conversions,
-#     Gaussian smoothing, and B-spline grid generation.
-#     """
-
-#     def __init__(self, file_path: str) -> None:
-#         self.file_path = file_path
-#         self.image = self.parse()  # SimpleITK Image
-#         self.array = sitk.GetArrayFromImage(self.image).astype(np.float32)  # [D,H,W]
-#         self.size = torch.tensor(self.array.shape, dtype=torch.float32)  # [D,H,W]
-#         self.spacing = torch.tensor(list(reversed(self.image.GetSpacing())), dtype=torch.float32)  # [D,H,W]
-#         self.origin = torch.tensor(list(reversed(self.image.GetOrigin())), dtype=torch.float32)  # [D,H,W]
-#         self.end = self.origin + (self.size - 1) * self.spacing
-
-#         self.origin_np = self.origin.numpy().astype(np.float64)   # [D,H,W] in mm
-#         self.spacing_np = self.spacing.numpy().astype(np.float64)
-#         self.end_np = self.end.numpy().astype(np.float64)
-
-
-#     def get_dims_ordering(self) -> np.ndarray:
-#         return np.argsort(self.image.getDimensionNames())
-
-#     def parse(self) -> sitk.Image:
-#         """Read the NRRD image using SimpleITK."""
-#         return sitk.ReadImage(self.file_path)
-
-#     def compute_positions(self, indices: torch.Tensor) -> np.ndarray:
-#         """Voxel indices -> physical coordinates (numpy float64)."""
-#         return (self.origin_np + self.spacing_np * indices.numpy()).astype(np.float64)
-
-#     def position_to_index(self, positions: np.ndarray) -> np.ndarray:
-#         """Physical coordinates -> voxel indices (float, numpy)."""
-#         return (positions - self.origin_np) / self.spacing_np
-
-#     def position_to_grid(self, positions: torch.Tensor, interval: torch.Tensor) -> torch.Tensor:
-#         """Map physical positions to values between a and b."""
-#         """Map Physical positions to normalized grid interval"""
-#         a, b = interval
-#         return (b - a) * (positions - self.origin) / (self.end - self.origin) + a
-
-#     def grid_to_position(self, grid: torch.Tensor, interval: torch.Tensor) -> torch.Tensor:
-#         """Map values between a and b to physical positions."""
-#         a, b = interval
-#         return (self.end - self.origin) * (grid - a) / (b - a) + self.origin
-
-#     def get_tensor(self, scale: float = 1.0, remove_background: bool = False) -> torch.Tensor:
-#         """Return image tensor with optional Gaussian smoothing and background removal."""
-#         array = self.array.copy()
-#         if remove_background:
-#             bg = array == 0.0
-#         sigma = (scale / self.spacing).numpy()
-#         array = gaussian_filter(array, sigma=sigma)
-#         if remove_background:
-#             array[bg] = 0.0
-#         tensor = torch.tensor(array, dtype=torch.float32)
-#         return tensor  # already in [D,H,W] order
-
-#     def get_bspline_grid(self, node_spacing: float) -> Tuple[int]:
-#         """Compute number of B-spline nodes along each dimension."""
-#         return tuple(
-#             int(length * spacing // node_spacing)
-#             for length, spacing in zip(self.size, self.spacing)
-#         )
 
 class PyNrrdParser:
     def __init__(self, file_path: str) -> None:
@@ -95,75 +30,22 @@ class PyNrrdParser:
             pts.append(pt)
         return np.array(pts, dtype=np.float64)
 
-    # def position_to_index(self, positions: np.ndarray) -> np.ndarray:
-    #     positions = np.asarray(positions, dtype=np.float64)
-    #     idxs = []
-    #     for p in positions:
-    #         itk_idx = self.image.TransformPhysicalPointToContinuousIndex(tuple(p.tolist()))
-    #         idxs.append([itk_idx[2], itk_idx[1], itk_idx[0]])
-    #     return np.array(idxs, dtype=np.float64)
 
     def position_to_index(self, positions: np.ndarray) -> np.ndarray:
 
-        positions = np.asarray(positions, dtype=np.float64)  # (N,3)
+        positions = np.asarray(positions, dtype=np.float64)  
         
-        # Invert the 3x3 direction matrix
-        dir_inv = np.linalg.inv(self.sitk_direction)  # shape (3,3)
+        # invert the 3x3 direction matrix
+        dir_inv = np.linalg.inv(self.sitk_direction) 
+        offset = positions - self.sitk_origin 
 
-        # Subtract origin
-        offset = positions - self.sitk_origin  # (N,3)
+        # apply inverse direction to get continuous index in x,y,z order
+        idx_xyz = offset @ dir_inv.T / self.sitk_spacing 
 
-        # Apply inverse direction to get continuous index in x,y,z order
-        idx_xyz = offset @ dir_inv.T / self.sitk_spacing  # (N,3)
-
-        # Reorder to z,y,x
         idx_zxy = idx_xyz[:, [2, 1, 0]]
 
         return idx_zxy
 
-
-    # @staticmethod
-    # def _trilinear_interpolate(array: np.ndarray, coords_zxy: np.ndarray) -> np.ndarray:
-    #     D, H, W = array.shape
-    #     coords = np.asarray(coords_zxy, dtype=np.float64)
-    #     z = coords[:, 0]
-    #     y = coords[:, 1]
-    #     x = coords[:, 2]
-
-    #     x0 = np.floor(x).astype(np.int64)
-    #     y0 = np.floor(y).astype(np.int64)
-    #     z0 = np.floor(z).astype(np.int64)
-
-    #     x0 = np.clip(x0, 0, W - 2)
-    #     y0 = np.clip(y0, 0, H - 2)
-    #     z0 = np.clip(z0, 0, D - 2)
-
-    #     x1 = x0 + 1
-    #     y1 = y0 + 1
-    #     z1 = z0 + 1
-
-    #     xd = x - x0
-    #     yd = y - y0
-    #     zd = z - z0
-
-    #     c000 = array[z0, y0, x0]
-    #     c001 = array[z0, y0, x1]
-    #     c010 = array[z0, y1, x0]
-    #     c011 = array[z0, y1, x1]
-    #     c100 = array[z1, y0, x0]
-    #     c101 = array[z1, y0, x1]
-    #     c110 = array[z1, y1, x0]
-    #     c111 = array[z1, y1, x1]
-
-    #     c00 = c000 * (1 - xd) + c001 * xd
-    #     c01 = c010 * (1 - xd) + c011 * xd
-    #     c10 = c100 * (1 - xd) + c101 * xd
-    #     c11 = c110 * (1 - xd) + c111 * xd
-
-    #     c0 = c00 * (1 - yd) + c01 * yd
-    #     c1 = c10 * (1 - yd) + c11 * yd
-
-    #     return c0 * (1 - zd) + c1 * zd
 
     @staticmethod
     def _trilinear_interpolate(array: np.ndarray, coords_zxy: np.ndarray) -> np.ndarray:
@@ -215,23 +97,104 @@ class PyNrrdParser:
         cont_idx_zxy = self.position_to_index(positions)
         return self._trilinear_interpolate(self.array, cont_idx_zxy)
 
-
-    def get_tensor(self, scale_mm: float = 1.0, remove_background: bool = False) -> torch.Tensor:
-        arr = self.array.copy()
-        bg_mask = None
-        if remove_background:
-            bg_mask = arr == 0.0
-        sigma_vox = (scale_mm / self.spacing_zxy).astype(np.float64)
-        arr = gaussian_filter(arr, sigma=sigma_vox)
-        if remove_background and bg_mask is not None:
-            arr[bg_mask] = 0.0
-        return torch.from_numpy(arr.astype(np.float32))
-
     def get_bspline_grid(self, node_spacing_mm: float) -> Tuple[int, int, int]:
         physical_lengths = (self.size - 1).astype(np.float64) * self.spacing_zxy
         counts = np.floor(physical_lengths / float(node_spacing_mm)).astype(np.int64)
         counts = np.maximum(counts, 1)
         return tuple(counts.tolist())
+
+    def sample_at_physical_points_gpu(self, positions: torch.Tensor) -> torch.Tensor:
+
+        # ensure positions dtype and device
+        device = positions.device
+        # mirror CPU version: use sitk_origin (x,y,z) and sitk_spacing (x,y,z)
+        origin = torch.tensor(self.sitk_origin, device=device, dtype=positions.dtype)   # (3,)
+        spacing = torch.tensor(self.sitk_spacing, device=device, dtype=positions.dtype) # (3,)
+        dir_mat = torch.tensor(self.sitk_direction, device=device, dtype=positions.dtype)  # (3,3)
+
+        # offset in (x,y,z)
+        offset = positions - origin 
+        dir_inv = torch.linalg.inv(dir_mat)  
+        idx_xyz = (offset @ dir_inv.T) / spacing 
+        # reorder to z,y,x to match array indexing
+        idx_zxy = idx_xyz[:, [2, 1, 0]]
+
+        # convert volume to tensor on device with same dtype as coords
+        array_t = torch.from_numpy(self.array).to(device=device)
+        if array_t.dtype != positions.dtype:
+            array_t = array_t.to(positions.dtype)
+
+        return self._trilinear_interpolate_gpu(array_t, idx_zxy)
+    
+    
+    @staticmethod
+    def _trilinear_interpolate_gpu(array_t: torch.Tensor, coords_zxy: torch.Tensor) -> torch.Tensor:
+        """
+        Torch version of trilinear interpolation.
+        array_t: (D,H,W) tensor
+        coords_zxy: (N,3) continuous positions in z,y,x order
+        Returns: (N,) tensor of interpolated values
+        """
+        D, H, W = array_t.shape
+        z = coords_zxy[:, 0]
+        y = coords_zxy[:, 1]
+        x = coords_zxy[:, 2]
+
+        # floor / ceil
+        z0 = torch.clamp(z.floor().long(), 0, D - 2)
+        y0 = torch.clamp(y.floor().long(), 0, H - 2)
+        x0 = torch.clamp(x.floor().long(), 0, W - 2)
+
+        z1 = z0 + 1
+        y1 = y0 + 1
+        x1 = x0 + 1
+
+        # interpolation weights
+        zd = z - z0.float()
+        yd = y - y0.float()
+        xd = x - x0.float()
+
+        # gather 8 corners
+        c000 = array_t[z0, y0, x0]
+        c001 = array_t[z0, y0, x1]
+        c010 = array_t[z0, y1, x0]
+        c011 = array_t[z0, y1, x1]
+        c100 = array_t[z1, y0, x0]
+        c101 = array_t[z1, y0, x1]
+        c110 = array_t[z1, y1, x0]
+        c111 = array_t[z1, y1, x1]
+
+        # interpolate along x
+        c00 = c000 * (1 - xd) + c001 * xd
+        c01 = c010 * (1 - xd) + c011 * xd
+        c10 = c100 * (1 - xd) + c101 * xd
+        c11 = c110 * (1 - xd) + c111 * xd
+
+        # interpolate along y
+        c0 = c00 * (1 - yd) + c01 * yd
+        c1 = c10 * (1 - yd) + c11 * yd
+
+        # interpolate along z
+        return c0 * (1 - zd) + c1 * zd
+
+
+    def get_tensor(self, scale_mm: float = 1.0, remove_background: bool = False, device='cpu') -> torch.Tensor:
+        arr = self.array.copy()
+        if remove_background:
+            arr[arr==0] = 0.0
+        sigma_vox = (scale_mm / self.spacing_zxy).astype(np.float64)
+        arr = gaussian_filter(arr, sigma=sigma_vox)
+        return torch.from_numpy(arr.astype(np.float32)).to(device)
+
+
+
+
+
+
+
+
+
+        
 
 
 class TagFileParser:
