@@ -6,6 +6,65 @@ from scipy.fft import fftn, ifftn, fftshift
 from scipy.ndimage import gaussian_filter
 import SimpleITK as sitk
 
+
+def compute_inter_vertebral_displacement_penalty(moved_centroids, case_centroids, case_axes, transforms_list, margins):
+
+    # constraint relative displacement between neighboring vertebrae along anatomical axes.
+    # compares each movement in its transformed anatomical frame
+
+    penalty = 0.0
+    K = len(moved_centroids)
+    
+    if K < 2:
+        return 0.0
+
+    # compte movement in transform anatomical frame
+    movements_LM = []
+    movements_AP = []
+    movements_SI = []
+    
+    for k in range(K):
+        displacement = moved_centroids[k] - case_centroids[k]
+        
+        # get original axes
+        LM_axis_orig, AP_axis_orig, SI_axis_orig = case_axes[k]
+        
+        # transform the axes using the rotation part of the transformation
+        tx = transforms_list[k]
+        rotation_matrix = np.array(tx.GetMatrix()).reshape(3, 3)
+        
+        LM_axis_transformed = rotation_matrix @ LM_axis_orig
+        AP_axis_transformed = rotation_matrix @ AP_axis_orig
+        SI_axis_transformed = rotation_matrix @ SI_axis_orig
+        
+        # project displacement onto TRANSFORMED axes
+        LM_movement = np.dot(displacement, LM_axis_transformed)
+        AP_movement = np.dot(displacement, AP_axis_transformed)
+        SI_movement = np.dot(displacement, SI_axis_transformed)
+        
+        movements_LM.append(LM_movement)
+        movements_AP.append(AP_movement)
+        movements_SI.append(SI_movement)
+    
+    # Compare neighboring vertebrae's movements
+    for k in range(K - 1):
+        # How much did k and k+1 move differently in their own anatomical frames?
+        LM_diff = abs(movements_LM[k] - movements_LM[k+1])
+        AP_diff = abs(movements_AP[k] - movements_AP[k+1])
+        SI_diff = abs(movements_SI[k] - movements_SI[k+1])
+        
+        # Penalize if they moved too differently (sliding apart)
+        LM_violation = max(0.0, LM_diff - margins['LM'])
+        AP_violation = max(0.0, AP_diff - margins['AP'])
+        SI_violation = max(0.0, SI_diff - margins['SI'])
+        
+        penalty += LM_violation**2 + AP_violation**2 + SI_violation**2
+    
+    return penalty / float(K - 1)
+
+
+
+
 def make_hinge_axes(json_path):
 
     # load JSON
