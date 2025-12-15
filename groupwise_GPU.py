@@ -92,9 +92,6 @@ def evaluate_group_gpu(flat_params, K, centers, sampled_positions_list,
                 centroid_penalty += diff**2
         centroid_penalty /= float(K-1)
 
-
-
-
     # print(
     #     f"mean_sim: {mean_sim:.4f}, "
     #     f"adjacency_penalty: {lambda_smooth * adjacency_penalty:.4f}, "
@@ -157,13 +154,6 @@ if __name__ == "__main__":
         sampled_indices = ct_mask_indices[samples]
         sampled_positions = moving_parser.compute_positions(sampled_indices)
         sampled_positions_list.append(sampled_positions)
-
-        # fixed_intensities = fixed_tensor[
-        #     sampled_indices[:, 0],
-        #     sampled_indices[:, 1],
-        #     sampled_indices[:, 2]
-        # ].float()
-        # fixed_intensities_list.append(fixed_intensities)
 
     
         # compute center of fixed image to add to transform at end
