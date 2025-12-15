@@ -12,51 +12,73 @@ def compute_inter_vertebral_displacement_penalty(moved_centroids, case_centroids
     # constraint relative displacement between neighboring vertebrae along anatomical axes.
     # compares each movement in its transformed anatomical frame
 
-    penalty = 0.0
+    penalty = 0.0 # start at 0
     K = len(moved_centroids)
     
     if K < 2:
         return 0.0
 
     # compte movement in transform anatomical frame
+    LM_axis_shared = case_axes[0][0]  # same for all vertebrae
     movements_LM = []
     movements_AP = []
     movements_SI = []
     
-    for k in range(K):
-        displacement = moved_centroids[k] - case_centroids[k]
-        
-        # get original axes
-        LM_axis_orig, AP_axis_orig, SI_axis_orig = case_axes[k]
-        
-        # transform the axes using the rotation part of the transformation
-        tx = transforms_list[k]
-        rotation_matrix = np.array(tx.GetMatrix()).reshape(3, 3)
-        
-        LM_axis_transformed = rotation_matrix @ LM_axis_orig
-        AP_axis_transformed = rotation_matrix @ AP_axis_orig
-        SI_axis_transformed = rotation_matrix @ SI_axis_orig
-        
-        # project displacement onto TRANSFORMED axes
-        LM_movement = np.dot(displacement, LM_axis_transformed)
-        AP_movement = np.dot(displacement, AP_axis_transformed)
-        SI_movement = np.dot(displacement, SI_axis_transformed)
-        
-        movements_LM.append(LM_movement)
-        movements_AP.append(AP_movement)
-        movements_SI.append(SI_movement)
-    
-    # Compare neighboring vertebrae's movements
     for k in range(K - 1):
-        # How much did k and k+1 move differently in their own anatomical frames?
-        LM_diff = abs(movements_LM[k] - movements_LM[k+1])
-        AP_diff = abs(movements_AP[k] - movements_AP[k+1])
-        SI_diff = abs(movements_SI[k] - movements_SI[k+1])
         
-        # Penalize if they moved too differently (sliding apart)
-        LM_violation = max(0.0, LM_diff - margins['LM'])
-        AP_violation = max(0.0, AP_diff - margins['AP'])
-        SI_violation = max(0.0, SI_diff - margins['SI'])
+        # rel position in TRANSFORMED space
+        relative_vec = moved_centroids[k+1] - moved_centroids[k]
+        
+        # Transform the original CT axes using the rotation matrices
+        tx_k = transforms_list[k]
+        rotation_k = np.array(tx_k.GetMatrix()).reshape(3, 3)
+        LM_axis_k_orig, AP_axis_k_orig, SI_axis_k_orig = case_axes[k]
+        
+        LM_axis_k_transformed = rotation_k @ LM_axis_k_orig
+        AP_axis_k_transformed = rotation_k @ AP_axis_k_orig
+        SI_axis_k_transformed = rotation_k @ SI_axis_k_orig
+        
+        # Vertebra k+1
+        tx_k1 = transforms_list[k+1]
+        rotation_k1 = np.array(tx_k1.GetMatrix()).reshape(3, 3)
+        LM_axis_k1_orig, AP_axis_k1_orig, SI_axis_k1_orig = case_axes[k+1]
+        
+        LM_axis_k1_transformed = rotation_k1 @ LM_axis_k1_orig
+        AP_axis_k1_transformed = rotation_k1 @ AP_axis_k1_orig
+        SI_axis_k1_transformed = rotation_k1 @ SI_axis_k1_orig
+        
+        # average the transformed axes (compromise reference frame)
+        LM_axis_avg = (LM_axis_k_transformed + LM_axis_k1_transformed) / 2.0
+        LM_axis_avg = LM_axis_avg / np.linalg.norm(LM_axis_avg)
+        
+        AP_axis_avg = (AP_axis_k_transformed + AP_axis_k1_transformed) / 2.0
+        AP_axis_avg = AP_axis_avg / np.linalg.norm(AP_axis_avg)
+        
+        SI_axis_avg = (SI_axis_k_transformed + SI_axis_k1_transformed) / 2.0
+        SI_axis_avg = SI_axis_avg / np.linalg.norm(SI_axis_avg)
+        
+        # project relative position onto averaged transformed axes
+        LM_component = abs(np.dot(relative_vec, LM_axis_avg))
+        AP_component = abs(np.dot(relative_vec, AP_axis_avg))
+        SI_component = abs(np.dot(relative_vec, SI_axis_avg))
+        
+        # expected separation (from original CT)
+        # project original relative position onto averaged transformed axes too
+        original_relative_vec = case_centroids[k+1] - case_centroids[k]
+        
+        LM_expected = abs(np.dot(original_relative_vec, LM_axis_avg))
+        AP_expected = abs(np.dot(original_relative_vec, AP_axis_avg))
+        SI_expected = abs(np.dot(original_relative_vec, SI_axis_avg))
+        
+        # check for sliding: did LM/AP components deviate?
+        LM_deviation = abs(LM_component - LM_expected)
+        AP_deviation = abs(AP_component - AP_expected)
+        SI_deviation = abs(SI_component - SI_expected)
+        
+        # penalize deviations beyond margins
+        LM_violation = max(0.0, LM_deviation - margins['LM'])
+        AP_violation = max(0.0, AP_deviation - margins['AP'])
+        SI_violation = max(0.0, SI_deviation - margins['SI'])
         
         penalty += LM_violation**2 + AP_violation**2 + SI_violation**2
     
