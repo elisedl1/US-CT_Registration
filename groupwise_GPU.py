@@ -156,14 +156,14 @@ if __name__ == "__main__":
     for case in case_names:
         print(f"\nPreparing case {case} ...")
         case_path = os.path.join(cases_dir, case)
-        fixed_file = os.path.join(case_path, 'fixed.nrrd')
-        moving_file = os.path.join(case_path, 'moving.nrrd')
+        fixed_file = os.path.join(case_path, 'fixed.nrrd') # US
+        moving_file = os.path.join(case_path, 'moving.nrrd') # CT
         
         # read in fixed and moving images
         moving_parser = PyNrrdParser(moving_file) # CT
-        moving_parsers.append(moving_parser)
-        moving_tensor = moving_parser.get_tensor(False)
-        fixed_parser = PyNrrdParser(fixed_file) # US
+        moving_parsers.append(moving_parser) # CT
+        moving_tensor = moving_parser.get_tensor(False) # CT
+        fixed_parser = PyNrrdParser(fixed_file) # US 
         fixed_parsers.append(fixed_parser)
         fixed_tensor = fixed_parser.get_tensor(False)
 
