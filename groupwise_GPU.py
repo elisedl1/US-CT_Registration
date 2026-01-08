@@ -15,6 +15,7 @@ from utils.helpers import sitk_euler_to_matrix, compute_inter_vertebral_displace
 from utils.similarity import IntensitySimilarity
 from extra.centroid import compute_centroid
 from extra.CT_axis import compute_ct_axes
+from extra.IVD_points import compute_adjacent_vertebra_pairings
 
 
 def compute_case_tre(flat_params):
@@ -36,7 +37,7 @@ def compute_case_tre(flat_params):
 
 
 def evaluate_group_gpu(flat_params, K, centers, sampled_positions_list,
-                       moving_parsers, fixed_parsers,
+                       moving_parsers, fixed_parser,
                        case_centroids, orig_dists, case_axes,
                        device='cuda'):
 
@@ -67,7 +68,7 @@ def evaluate_group_gpu(flat_params, K, centers, sampled_positions_list,
         moved_positions = (pts_h @ M_torch.T)[:, :3]
 
         # sample US (fixed) intensities
-        moving_vals = fixed_parsers[k].sample_at_physical_points_gpu(moved_positions) # US parser
+        moving_vals = fixed_parser[k].sample_at_physical_points_gpu(moved_positions) # US
         moving_intensities = moving_vals.float() # US intensities 
         # fixed_intensities = fixed_intensities_list[k]
 
@@ -100,7 +101,7 @@ def evaluate_group_gpu(flat_params, K, centers, sampled_positions_list,
 
 
     # INTER-VERTEBRAL DISPLACEMENT PENALTY
-    lambda_axes = 0.01
+    lambda_axes = 0.0
     axes_margins = { # mm values
         'LM': 3.0,  # STRICT - very little Lateral-Medial sliding
         'AP': 3.0,  # Anterior-Posterior margin Anterior-Posterior
@@ -110,6 +111,10 @@ def evaluate_group_gpu(flat_params, K, centers, sampled_positions_list,
     axes_penalty = compute_inter_vertebral_displacement_penalty(
         moved_centroids, case_centroids, case_axes, transforms_list, axes_margins
     )
+
+
+    # IVD POINT PAIR PENALTY
+    
 
 
 
@@ -132,6 +137,7 @@ if __name__ == "__main__":
     
     # SETTINGS
     # form
+    mesh_dir = '/usr/local/data/elise/pig_data/pig2/Registration/cropped'
     cases_dir = '/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans/intra1/Cases'
     output_dir = '/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans/intra1/output_python_cma_group_allcases'
     os.makedirs(output_dir, exist_ok=True)
@@ -141,6 +147,17 @@ if __name__ == "__main__":
         name for name in os.listdir(cases_dir)
         if os.path.isdir(os.path.join(cases_dir, name)) and name.startswith('L')
     ])
+
+
+    print("Computing nearest points for adjacent vertebra...")
+    pairings, meshes = compute_adjacent_vertebra_pairings(
+    mesh_dir,
+    n_sample=30000,
+    n_pairs=500,
+    max_dist=7.0,
+    seed=42
+    )
+
     print("Group-wise registration for cases:", case_names)
 
     # Precompute per-case data
@@ -156,16 +173,17 @@ if __name__ == "__main__":
     for case in case_names:
         print(f"\nPreparing case {case} ...")
         case_path = os.path.join(cases_dir, case)
-        fixed_file = os.path.join(case_path, 'fixed.nrrd') # US
+        # fixed_file = os.path.join(case_path, 'fixed.nrrd') # US
+        fixed_file = os.path.join(cases_dir, 'US_complete.nrrd')
         moving_file = os.path.join(case_path, 'moving.nrrd') # CT
         
         # read in fixed and moving images
         moving_parser = PyNrrdParser(moving_file) # CT
         moving_parsers.append(moving_parser) # CT
         moving_tensor = moving_parser.get_tensor(False) # CT
+
         fixed_parser = PyNrrdParser(fixed_file) # US 
-        fixed_parsers.append(fixed_parser)
-        fixed_tensor = fixed_parser.get_tensor(False)
+        # fixed_parsers.append(fixed_parser)
 
         # sample CT (moving) points at posterior surface
         mask = moving_tensor > 0 # ct image
@@ -266,7 +284,7 @@ if __name__ == "__main__":
         centers=centers,
         sampled_positions_list=sampled_positions_list_gpu,
         moving_parsers=moving_parsers,
-        fixed_parsers=fixed_parsers,
+        fixed_parsers=fixed_parser,
         case_centroids=case_centroids,
         orig_dists=orig_dists,
         case_axes=case_axes,
@@ -308,7 +326,7 @@ if __name__ == "__main__":
             'verb_disp': 1,
             'maxiter': 80,
             'tolfun': 1e-5,
-            'seed': 772512
+            # 'seed': 772512
         }
     )
 
@@ -321,11 +339,6 @@ if __name__ == "__main__":
     mean_sim_history = []
     axes_penalty_history = []
 
-    # while not es.stop():
-    #     solutions = es.ask()
-    #     values = [partial_eval(sol) for sol in solutions] 
-    #     es.tell(solutions, values)
-    #     it += 1
 
     while not es.stop():
         solutions = es.ask()
