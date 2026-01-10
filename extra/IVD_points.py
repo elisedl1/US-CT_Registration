@@ -92,3 +92,65 @@ def compute_adjacent_vertebra_pairings(mesh_dir, n_sample=30000, n_pairs=500,
         }
 
     return pairings, meshes
+
+def visualize_pairings(mesh_i, mesh_j, pairs_i, pairs_j, subsample=200):
+
+
+    # optional subsampling for clarity
+    if len(pairs_i) > subsample:
+        idx = np.random.choice(len(pairs_i), subsample, replace=False)
+        pairs_i = pairs_i[idx]
+        pairs_j = pairs_j[idx]
+
+    plotter = pv.Plotter()
+
+    # meshes
+    plotter.add_mesh(mesh_i, color="lightgray", opacity=0.3)
+    plotter.add_mesh(mesh_j, color="lightblue", opacity=0.3)
+
+    # points
+    plotter.add_points(
+        pairs_i,
+        color="red",
+        point_size=8,
+        render_points_as_spheres=True
+    )
+    plotter.add_points(
+        pairs_j,
+        color="blue",
+        point_size=8,
+        render_points_as_spheres=True
+    )
+
+    # connecting lines
+    for p, q in zip(pairs_i, pairs_j):
+        plotter.add_mesh(pv.Line(p, q), color="yellow", line_width=2)
+
+    plotter.show()
+
+
+if __name__ == "__main__":
+
+    mesh_dir = "/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/CT_segmentations/cropped/intra1"
+
+    pairings, meshes = compute_adjacent_vertebra_pairings(
+        mesh_dir,
+        n_sample=30000,
+        n_pairs=500,
+        max_dist=8.0,
+        seed=42
+    )
+
+    # visualize all adjacent vertebra pairs
+    for (lvl_i, lvl_j), data in pairings.items():
+        print(f"Visualizing L{lvl_i}-L{lvl_j}")
+        visualize_pairings(
+            meshes[lvl_i],
+            meshes[lvl_j],
+            data["L_i"],
+            data["L_j"],
+            subsample=150
+        )
+
+
+
