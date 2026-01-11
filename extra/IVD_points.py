@@ -7,7 +7,6 @@ from scipy.spatial import cKDTree
 def load_mesh(path):
     mesh = pv.read(path)
     mesh = mesh.extract_surface().triangulate().clean()
-    # compute normals to constrain nearest point
     mesh.compute_normals(inplace=True, auto_orient_normals=True)
     return mesh
 
@@ -44,8 +43,17 @@ def parse_level(filename):
         raise ValueError(f"Cannot parse vertebral level from {filename}")
     return int(m.group(1))
 
+def filter_outlier_pairs(dists, pairs_i, pairs_j, k=2.5):
+    # remove outlying pairs based on distance using median ± k*MAD
+    median = np.median(dists)
+    mad = np.median(np.abs(dists - median))
+    lower = median - k * mad
+    upper = median + k * mad
+    keep_idx = np.where((dists >= lower) & (dists <= upper))[0]
+    return pairs_i[keep_idx], pairs_j[keep_idx], dists[keep_idx]
+
 def compute_adjacent_vertebra_pairings(mesh_dir, n_sample=30000, n_pairs=500,
-                                       max_dist=8.0, seed=42):
+                                       max_dist=8.0, seed=42, outlier_k=2.5):
 
     np.random.seed(seed)
 
@@ -54,14 +62,9 @@ def compute_adjacent_vertebra_pairings(mesh_dir, n_sample=30000, n_pairs=500,
     levels = [(parse_level(f), f) for f in files]
     levels.sort(key=lambda x: x[0])
 
-    meshes = {}
-    for lvl, fname in levels:
-        path = os.path.join(mesh_dir, fname)
-        meshes[lvl] = load_mesh(path)
-
+    meshes = {lvl: load_mesh(os.path.join(mesh_dir, fname)) for lvl, fname in levels}
     pairings = {}
 
-    # compute pairings for adjacent vertebrae
     for (lvl_i, _), (lvl_j, _) in zip(levels[:-1], levels[1:]):
         mesh_i = meshes[lvl_i]
         mesh_j = meshes[lvl_j]
@@ -80,54 +83,40 @@ def compute_adjacent_vertebra_pairings(mesh_dir, n_sample=30000, n_pairs=500,
         valid_idx = np.where((dists < max_dist) & (dot < -0.7))[0]
 
         if len(valid_idx) < n_pairs:
-            raise RuntimeError(
-                f"L{lvl_i}-L{lvl_j}: only {len(valid_idx)} pairs < {max_dist} mm"
-            )
+            raise RuntimeError(f"L{lvl_i}-L{lvl_j}: only {len(valid_idx)} valid pairs < {max_dist} mm")
 
         keep = np.random.choice(valid_idx, size=n_pairs, replace=False)
+
+        # filter outliers based on distance
+        L_i_filtered, L_j_filtered, d_filtered = filter_outlier_pairs(
+            dists[keep], pts_i[keep], pts_j[idx[keep]], k=outlier_k
+        )
+
         pairings[(lvl_i, lvl_j)] = {
-            "L_i": pts_i[keep],
-            "L_j": pts_j[idx[keep]],
-            "d0": dists[keep]
+            "L_i": L_i_filtered,
+            "L_j": L_j_filtered,
+            "d0": d_filtered
         }
 
     return pairings, meshes
 
 def visualize_pairings(mesh_i, mesh_j, pairs_i, pairs_j, subsample=200):
 
-
-    # optional subsampling for clarity
     if len(pairs_i) > subsample:
         idx = np.random.choice(len(pairs_i), subsample, replace=False)
         pairs_i = pairs_i[idx]
         pairs_j = pairs_j[idx]
 
     plotter = pv.Plotter()
-
-    # meshes
     plotter.add_mesh(mesh_i, color="lightgray", opacity=0.3)
     plotter.add_mesh(mesh_j, color="lightblue", opacity=0.3)
+    plotter.add_points(pairs_i, color="red", point_size=8, render_points_as_spheres=True)
+    plotter.add_points(pairs_j, color="blue", point_size=8, render_points_as_spheres=True)
 
-    # points
-    plotter.add_points(
-        pairs_i,
-        color="red",
-        point_size=8,
-        render_points_as_spheres=True
-    )
-    plotter.add_points(
-        pairs_j,
-        color="blue",
-        point_size=8,
-        render_points_as_spheres=True
-    )
-
-    # connecting lines
     for p, q in zip(pairs_i, pairs_j):
         plotter.add_mesh(pv.Line(p, q), color="yellow", line_width=2)
 
     plotter.show()
-
 
 if __name__ == "__main__":
 
@@ -138,12 +127,12 @@ if __name__ == "__main__":
         n_sample=30000,
         n_pairs=500,
         max_dist=8.0,
-        seed=42
+        seed=42,
+        outlier_k=3.5  # MAD threshold
     )
 
-    # visualize all adjacent vertebra pairs
     for (lvl_i, lvl_j), data in pairings.items():
-        print(f"Visualizing L{lvl_i}-L{lvl_j}")
+        print(f"Visualizing L{lvl_i}-L{lvl_j} ({len(data['L_i'])} pairs after filtering)")
         visualize_pairings(
             meshes[lvl_i],
             meshes[lvl_j],
@@ -151,6 +140,3 @@ if __name__ == "__main__":
             data["L_j"],
             subsample=150
         )
-
-
-
