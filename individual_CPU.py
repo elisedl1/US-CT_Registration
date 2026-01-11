@@ -52,7 +52,8 @@ def evaluate(flat_params, center, sampled_positions, moving_parser):
     moving_intensities = moving_vals.float()
     
     # mean iUS intensity metric
-    sim = torch.mean(moving_intensities)
+    sim = torch.mean(moving_intensities) # original
+
     mean_sim = float(sim)
     total_loss = -mean_sim
     
@@ -61,13 +62,14 @@ def evaluate(flat_params, center, sampled_positions, moving_parser):
 
 if __name__ == "__main__":
     
-    case_name = 'L2'
+    case_name = 'L4'
     cases_dir = '/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/Known_Trans/intra1/Cases'
     output_dir = f'/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/Known_Trans/intra1/output_python_cma/{case_name}'
     os.makedirs(output_dir, exist_ok=True)
     
     case_path = os.path.join(cases_dir, case_name)
-    fixed_file = os.path.join(case_path, 'fixed.nrrd')  # US
+    # fixed_file = os.path.join(case_path, 'fixed.nrrd')  # US
+    fixed_file = os.path.join(cases_dir, 'US_complete.nrrd')  # US full L1-L4
     moving_file = os.path.join(case_path, 'moving.nrrd')  # CT
     
     print(f"Processing case {case_name}...")
@@ -92,15 +94,16 @@ if __name__ == "__main__":
     
     # compute center of fixed image
     fixed_img = sitk.ReadImage(fixed_file)
+    moving_img = sitk.ReadImage(moving_file)
     center = np.array(
-        fixed_img.TransformContinuousIndexToPhysicalPoint(
+        moving_img.TransformContinuousIndexToPhysicalPoint(
             np.array(fixed_img.GetSize()) / 2.0
         )
     )
     
     # LANDMARKS
-    target_file = f"/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/Known_Trans/intra1/landmarks/US_{case_name}_landmarks_intra.mrk.json"  # US (fixed)
-    source_file = f"/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/Known_Trans/intra1/landmarks/CT_{case_name}_landmarks.mrk.json"  # CT (moving)
+    target_file = f"/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/Known_Trans/intra1/landmarks/US_{case_name}_landmarks.mrk.json"  # US (fixed)
+    source_file = f"/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/Known_Trans/intra1/landmarks/CT_{case_name}_landmarks_intra.mrk.json"  # CT (moving)
     
     try:
         fixed_lm_parser = SlicerJsonTagParser(target_file)  # Fixed US
