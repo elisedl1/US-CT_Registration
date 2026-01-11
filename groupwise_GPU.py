@@ -68,9 +68,8 @@ def evaluate_group_gpu(flat_params, K, centers, sampled_positions_list,
         moved_positions = (pts_h @ M_torch.T)[:, :3]
 
         # sample US (fixed) intensities
-        moving_vals = fixed_parser[k].sample_at_physical_points_gpu(moved_positions) # US
+        moving_vals = fixed_parser.sample_at_physical_points_gpu(moved_positions) # US
         moving_intensities = moving_vals.float() # US intensities 
-        # fixed_intensities = fixed_intensities_list[k]
 
         # mean iUS intensity metric
         sim = torch.mean(moving_intensities)
@@ -113,7 +112,7 @@ def evaluate_group_gpu(flat_params, K, centers, sampled_positions_list,
     )
 
 
-    # IVD POINT PAIR PENALTY
+    # TODO: IVD POINT PAIR PENALTY
     
 
 
@@ -150,6 +149,8 @@ if __name__ == "__main__":
 
 
     print("Computing nearest points for adjacent vertebra...")
+
+
     pairings, meshes = compute_adjacent_vertebra_pairings(
     mesh_dir,
     n_sample=30000,
@@ -160,11 +161,13 @@ if __name__ == "__main__":
 
     print("Group-wise registration for cases:", case_names)
 
-    # Precompute per-case data
+    # read single US volume once
+    fixed_file = os.path.join(cases_dir, 'US_complete.nrrd')
+    fixed_parser = PyNrrdParser(fixed_file) 
+
+    # precompute per-case data
     moving_parsers = []
-    fixed_parsers = []
     sampled_positions_list = []
-    fixed_intensities_list = []
     centers = []
     case_landmarks = []
     case_output_dirs = []
@@ -173,17 +176,12 @@ if __name__ == "__main__":
     for case in case_names:
         print(f"\nPreparing case {case} ...")
         case_path = os.path.join(cases_dir, case)
-        # fixed_file = os.path.join(case_path, 'fixed.nrrd') # US
-        fixed_file = os.path.join(cases_dir, 'US_complete.nrrd')
-        moving_file = os.path.join(case_path, 'moving.nrrd') # CT
+        moving_file = os.path.join(case_path, 'moving.nrrd') # CT for case
         
         # read in fixed and moving images
         moving_parser = PyNrrdParser(moving_file) # CT
         moving_parsers.append(moving_parser) # CT
         moving_tensor = moving_parser.get_tensor(False) # CT
-
-        fixed_parser = PyNrrdParser(fixed_file) # US 
-        # fixed_parsers.append(fixed_parser)
 
         # sample CT (moving) points at posterior surface
         mask = moving_tensor > 0 # ct image
@@ -199,11 +197,11 @@ if __name__ == "__main__":
         sampled_positions_list.append(sampled_positions)
 
     
-        # compute center of fixed image to add to transform at end
-        fixed_img = sitk.ReadImage(fixed_file)
+        # compute center of moving CT images (for transformation)
+        moving_img = sitk.ReadImage(moving_file)
         center = np.array(
-            fixed_img.TransformContinuousIndexToPhysicalPoint(
-                np.array(fixed_img.GetSize()) / 2.0
+            moving_img.TransformContinuousIndexToPhysicalPoint(
+                np.array(moving_img.GetSize()) / 2.0
             )
         )
         centers.append(center)
@@ -284,7 +282,7 @@ if __name__ == "__main__":
         centers=centers,
         sampled_positions_list=sampled_positions_list_gpu,
         moving_parsers=moving_parsers,
-        fixed_parsers=fixed_parser,
+        fixed_parser=fixed_parser,
         case_centroids=case_centroids,
         orig_dists=orig_dists,
         case_axes=case_axes,
@@ -382,6 +380,7 @@ if __name__ == "__main__":
         else:
             print()
             print(f"{case}: TRE = {tre:.4f}")
+
 
     mean_sim_arr = np.array(mean_sim_history)
     axes_penalty_arr = np.array(axes_penalty_history)
