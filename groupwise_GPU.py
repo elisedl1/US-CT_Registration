@@ -1,4 +1,3 @@
-
 import os
 import time
 import numpy as np
@@ -9,6 +8,8 @@ from glob import glob
 import multiprocessing as mp 
 from functools import partial
 import matplotlib.pyplot as plt
+import warnings
+warnings.filterwarnings('ignore')
 
 from utils.file_parser import SlicerJsonTagParser, PyNrrdParser
 from utils.helpers import sitk_euler_to_matrix, compute_inter_vertebral_displacement_penalty
@@ -16,6 +17,8 @@ from utils.similarity import IntensitySimilarity
 from extra.centroid import compute_centroid
 from extra.CT_axis import compute_ct_axes
 from extra.IVD_points import compute_adjacent_vertebra_pairings
+
+
 
 
 def compute_case_tre(flat_params):
@@ -134,12 +137,21 @@ def evaluate_group_gpu(flat_params, K, centers, sampled_positions_list,
 
 if __name__ == "__main__":
     
+    # suppress PyVista cleanup warnings
+    warnings.filterwarnings('ignore', category=DeprecationWarning)
+    warnings.filterwarnings('ignore', message='.*NoneType.*check_attribute.*')
+    
     # SETTINGS
     # form
     mesh_dir = '/usr/local/data/elise/pig_data/pig2/Registration/cropped'
     cases_dir = '/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans/intra1/Cases'
     output_dir = '/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans/intra1/output_python_cma_group_allcases'
-    os.makedirs(output_dir, exist_ok=True)
+
+    # local
+    # mesh_dir = '/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/CT_segmentations/cropped'
+    # cases_dir = '/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/Known_Trans/intra1/Cases'
+    # output_dir = '/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/Known_Trans/intra1/output_python_cma_group_allcases'
+    # os.makedirs(output_dir, exist_ok=True)
 
     # gather case folders (assumes L1..L4 style)
     case_names = sorted([
@@ -150,14 +162,23 @@ if __name__ == "__main__":
 
     print("Computing nearest points for adjacent vertebra...")
 
-
-    pairings, meshes = compute_adjacent_vertebra_pairings(
-    mesh_dir,
-    n_sample=30000,
-    n_pairs=500,
-    max_dist=7.0,
-    seed=42
-    )
+    try:
+        pairings, meshes = compute_adjacent_vertebra_pairings(
+        mesh_dir,
+        n_sample=30000,
+        n_pairs=500,
+        max_dist=7.0,
+        seed=42
+        )
+        
+        # (pairings contain numpy arrays, not mesh references)
+        for mesh in meshes.values():
+            mesh.clear_data()
+        meshes.clear()
+        del meshes
+    except Exception as e:
+        print(f"Error computing pairings: {e}")
+        raise
 
     print("Group-wise registration for cases:", case_names)
 
@@ -207,10 +228,16 @@ if __name__ == "__main__":
         centers.append(center)
 
 
-        # read in landmarks
-        target_file = f"/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans/intra1/landmarks/US_{case}_landmarks_intra.mrk.json" # matches fixed US (intra)
-        source_file = f"/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans/intra1/landmarks/CT_{case}_landmarks.mrk.json" # matches moving CT
+        # LANDMARKS
+        # form
+        target_file = f"/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans/intra1/landmarks/US_{case}_landmarks.mrk.json" # matches fixed US (intra)
+        source_file = f"/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans/intra1/landmarks/CT_{case}_landmarks_intra.mrk.json" # matches moving CT
         
+        # local
+        # target_file = f"/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/Known_Trans/intra1/landmarks/US_{case}_landmarks.mrk.json" # matches fixed US (intra)
+        # source_file = f"/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/Known_Trans/intra1/landmarks/CT_{case}_landmarks_intra.mrk.json" # matches moving CT
+        
+
         try:
             fixed_lm_parser = SlicerJsonTagParser(target_file) # fixed US
             moving_lm_parser = SlicerJsonTagParser(source_file) # moving CT
@@ -272,7 +299,7 @@ if __name__ == "__main__":
     # move data to GPU if available
     print("Preparing tensors on GPU...")
     sampled_positions_list_gpu = [torch.from_numpy(pos.astype(np.float32)).cuda() for pos in sampled_positions_list]
-    fixed_intensities_list_gpu = [x.cuda() for x in fixed_intensities_list]
+    # fixed_intensities_list_gpu = [x.cuda() for x in fixed_intensities_list]
 
 
     # create partial evaluate function
@@ -403,6 +430,7 @@ if __name__ == "__main__":
     print("Saved optimization_metrics.png in current directory.")
 
     print("DONE.")
+
 
     '''
     Ius(x) * Ict(T(x))
