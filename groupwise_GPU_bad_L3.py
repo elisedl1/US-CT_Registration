@@ -87,7 +87,7 @@ def evaluate_group_gpu(flat_params, K, centers, sampled_positions_list,
 
     # CENTROID DISTANCE PENALTY
     # penalize if centroids become < margin_mm apart
-    lambda_centroid = 0.05
+    lambda_centroid = 0.0
     margin_mm = 4.0
     centroid_penalty = 0.0
     if K > 1:
