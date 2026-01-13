@@ -116,7 +116,7 @@ def evaluate_group_gpu(flat_params, K, centers, sampled_positions_list,
 
 
     # IVD POINT PAIR PENALTY
-    lambda_ivd = 1.0 # weight
+    lambda_ivd = 0.5 # weight
     ivd_loss, ivd_metrics = compute_ivd_collision_loss(pairings, transforms_list, case_names)
 
 
@@ -209,7 +209,9 @@ if __name__ == "__main__":
     print("Group-wise registration for cases:", case_names)
 
     # read single US volume once
-    fixed_file = os.path.join(cases_dir, 'US_complete.nrrd')
+    # fixed_file = os.path.join(cases_dir, 'US_complete.nrrd')
+    # fixed_file = os.path.join(cases_dir, 'US_full_L3_dropoutref.nrrd')
+    fixed_file = os.path.join(cases_dir, 'US_full_L2_L3_dropoutref.nrrd')
     fixed_parser = PyNrrdParser(fixed_file) 
 
     # precompute per-case data
