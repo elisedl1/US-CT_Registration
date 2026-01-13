@@ -12,7 +12,7 @@ import warnings
 warnings.filterwarnings('ignore')
 
 from utils.file_parser import SlicerJsonTagParser, PyNrrdParser
-from utils.helpers import sitk_euler_to_matrix, compute_inter_vertebral_displacement_penalty
+from utils.helpers import sitk_euler_to_matrix, compute_inter_vertebral_displacement_penalty, compute_ivd_collision_loss
 from utils.similarity import IntensitySimilarity
 from extra.centroid import compute_centroid
 from extra.CT_axis import compute_ct_axes
@@ -41,7 +41,7 @@ def compute_case_tre(flat_params):
 
 def evaluate_group_gpu(flat_params, K, centers, sampled_positions_list,
                        moving_parsers, fixed_parser,
-                       case_centroids, orig_dists, case_axes,
+                       case_centroids, orig_dists, case_axes, pairings, case_names,
                        device='cuda'):
 
     total_sim = 0.0
@@ -115,9 +115,19 @@ def evaluate_group_gpu(flat_params, K, centers, sampled_positions_list,
     )
 
 
-    # TODO: IVD POINT PAIR PENALTY
-    
+    # IVD POINT PAIR PENALTY
+    lambda_ivd = 1.0 # weight
+    ivd_loss, ivd_metrics = compute_ivd_collision_loss(pairings, transforms_list, case_names)
 
+
+
+    # TOTAL LOSS
+    total_loss = (
+        -float(mean_sim) + 
+        (lambda_centroid * centroid_penalty) + 
+        (lambda_axes * axes_penalty) +
+        (lambda_ivd * ivd_loss)
+    )
 
 
     # # debug printer
@@ -125,14 +135,17 @@ def evaluate_group_gpu(flat_params, K, centers, sampled_positions_list,
     #     f"mean_sim: {mean_sim:.4f}, "
     #     f"centroid_penalty: {lambda_centroid * centroid_penalty:.4f}, "
     #     f"axes_penalty: {lambda_axes * axes_penalty:.4f}, "
+    #     f"collision_penalty: {lambda_ivd * ivd_loss:.4f}, "
     #     f"total_loss: {-float(mean_sim) + lambda_centroid * centroid_penalty + lambda_axes * axes_penalty:.4f}"
     # )
 
-    total_loss = -float(mean_sim) + (lambda_centroid * centroid_penalty) + (lambda_axes * axes_penalty)
-
-
-    return total_loss, float(mean_sim), float(axes_penalty * lambda_axes)
+    return total_loss, float(mean_sim), float(axes_penalty * lambda_axes), float(ivd_loss * lambda_ivd)
     # return -float(mean_sim) + (lambda_centroid * centroid_penalty) + (lambda_axes * axes_penalty)
+
+
+
+
+
 
 
 if __name__ == "__main__":
@@ -151,7 +164,7 @@ if __name__ == "__main__":
     # mesh_dir = '/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/CT_segmentations/cropped'
     # cases_dir = '/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/Known_Trans/intra1/Cases'
     # output_dir = '/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/Known_Trans/intra1/output_python_cma_group_allcases'
-    # os.makedirs(output_dir, exist_ok=True)
+    os.makedirs(output_dir, exist_ok=True)
 
     # gather case folders (assumes L1..L4 style)
     case_names = sorted([
@@ -160,13 +173,17 @@ if __name__ == "__main__":
     ])
 
 
+
+
+
+    # ----------
     print("Computing nearest points for adjacent vertebra...")
 
     try:
         pairings, meshes = compute_adjacent_vertebra_pairings(
         mesh_dir,
         n_sample=30000,
-        n_pairs=500,
+        n_pairs=200,# change number of pairs between each vertebra
         max_dist=7.0,
         seed=42
         )
@@ -178,8 +195,17 @@ if __name__ == "__main__":
         del meshes
     except Exception as e:
         print(f"Error computing pairings: {e}")
-        raise
 
+
+
+    # convert to np
+    for k in pairings:
+        pairings[k]['L_i'] = np.asarray(pairings[k]['L_i'])
+        pairings[k]['L_j'] = np.asarray(pairings[k]['L_j'])
+
+
+
+    # ----------
     print("Group-wise registration for cases:", case_names)
 
     # read single US volume once
@@ -191,7 +217,6 @@ if __name__ == "__main__":
     sampled_positions_list = []
     centers = []
     case_landmarks = []
-    case_output_dirs = []
     case_axes = []
 
     for case in case_names:
@@ -249,10 +274,6 @@ if __name__ == "__main__":
             case_landmarks.append((None, None))
             print("  No landmarks for case", case)
 
-        case_out = os.path.join(output_dir, case)
-        os.makedirs(case_out, exist_ok=True)
-        case_output_dirs.append(case_out)
-
 
         # compute CT anatomical axes
         ct_seg_file = os.path.join(cases_dir, case, f'CT_{case}.nrrd')
@@ -285,7 +306,7 @@ if __name__ == "__main__":
     for k in range(len(case_centroids) - 1):
         d = np.linalg.norm(case_centroids[k] - case_centroids[k + 1])
         orig_dists.append(float(d))
-    orig_dists = np.array(orig_dists)  # shape (K-1,)
+    orig_dists = np.array(orig_dists) 
 
 
     # K = number of structures
@@ -313,6 +334,8 @@ if __name__ == "__main__":
         case_centroids=case_centroids,
         orig_dists=orig_dists,
         case_axes=case_axes,
+        pairings = pairings,
+        case_names = case_names,
         device='cuda'
     )
 
@@ -363,16 +386,18 @@ if __name__ == "__main__":
     loss_history = []
     mean_sim_history = []
     axes_penalty_history = []
+    ivd_loss_history = []  
 
 
     while not es.stop():
         solutions = es.ask()
         values = []
         for sol in solutions:
-            val, mean_sim, axes_pen = partial_eval(sol)  # unpack
+            val, mean_sim, axes_pen, ivd_loss = partial_eval(sol)  # unpack with ivd_loss
             values.append(val)
             mean_sim_history.append(mean_sim)
             axes_penalty_history.append(axes_pen)
+            ivd_loss_history.append(ivd_loss)  # store IVD loss
             loss_history.append(val)
         es.tell(solutions, values)
 
@@ -385,7 +410,8 @@ if __name__ == "__main__":
     # print("Best first-6 params (case 1):", best_flat[:6])
 
 
-    # save transforms per-case
+    # save transforms per-case - ALL IN MAIN OUTPUT DIRECTORY
+    final_transforms = []
     for k, case in enumerate(case_names):
         params = best_flat[6*k:6*(k+1)]
         tx = sitk.Euler3DTransform()
@@ -394,9 +420,14 @@ if __name__ == "__main__":
 
         # print(case, params)
 
-        out_name = os.path.join(case_output_dirs[k], f"TransformParameters_groupwise.h5")
+        # Save directly in output_dir with case name suffix
+        out_name = os.path.join(output_dir, f"TransformParameters_groupwise_{case}.h5")
         sitk.WriteTransform(tx, out_name)
         print(f"Wrote transform for {case}: {out_name}")
+        
+        # Store inverse transform for IVD spacing calculation
+        tx_inv = tx.GetInverse()
+        final_transforms.append(tx_inv)
 
 
     # compute and print TRE per-case
@@ -411,24 +442,24 @@ if __name__ == "__main__":
 
     mean_sim_arr = np.array(mean_sim_history)
     axes_penalty_arr = np.array(axes_penalty_history)
+    ivd_loss_arr = np.array(ivd_loss_history) 
 
+
+
+    # LOSS PLOTTING
     plt.figure(figsize=(10,6))
-
-    # marker only: use linestyle='' or 'None'
     plt.plot(mean_sim_arr, 'o', label='Mean Similarity', linestyle='None')
     plt.plot(axes_penalty_arr, 's', label='Axes Penalty', linestyle='None')
-
+    plt.plot(ivd_loss_arr, '^', label='IVD Spacing Loss', linestyle='None')  # plot IVD loss
     plt.xlabel('CMA Evaluation Step')
     plt.ylabel('Value')
     plt.title('CMA Optimization Metrics per Evaluation')
     plt.legend()
     plt.grid(True)
     plt.tight_layout()
-
     plt.savefig("optimization_metrics.png", dpi=150)
     plt.close()
     print("Saved optimization_metrics.png in current directory.")
-
     print("DONE.")
 
 
