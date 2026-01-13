@@ -47,8 +47,8 @@ output_path = os.path.join(
     output_dir,
     f"moving_occluded_{num_occlusions}_{min_occlusion_size}-{max_occlusion_size}.nrrd"
 )
-sitk.WriteImage(occluded_img, output_path)
-print(f"Saved occluded image to: {output_path}")
+# sitk.WriteImage(occluded_img, output_path)
+# print(f"Saved occluded image to: {output_path}")
 
 # Plot mid-slice for verification
 mid_slice_idx = depth // 2

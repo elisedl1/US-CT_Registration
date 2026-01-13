@@ -69,7 +69,9 @@ if __name__ == "__main__":
     
     case_path = os.path.join(cases_dir, case_name)
     # fixed_file = os.path.join(case_path, 'fixed.nrrd')  # US
-    fixed_file = os.path.join(cases_dir, 'US_complete.nrrd')  # US full L1-L4
+    # fixed_file = os.path.join(cases_dir, 'US_complete.nrrd')  # US full L1-L4
+    fixed_file = os.path.join(cases_dir, 'US_full_L3_dropoutref.nrrd')
+    # fixed_file = os.path.join(cases_dir, 'US_full_L2_L3_dropoutref.nrrd')
     moving_file = os.path.join(case_path, 'moving.nrrd')  # CT
     
     print(f"Processing case {case_name}...")
@@ -97,7 +99,7 @@ if __name__ == "__main__":
     moving_img = sitk.ReadImage(moving_file)
     center = np.array(
         moving_img.TransformContinuousIndexToPhysicalPoint(
-            np.array(fixed_img.GetSize()) / 2.0
+            np.array(moving_img.GetSize()) / 2.0
         )
     )
     
