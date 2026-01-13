@@ -7,6 +7,83 @@ from scipy.ndimage import gaussian_filter
 import SimpleITK as sitk
 
 
+def compute_ivd_collision_loss(pairings, transforms_list, case_names):
+    # IVD collision loss tuned for your specific anatomy
+    total_loss = 0.0
+    metrics = {}
+    
+    for i in range(len(case_names) - 1):
+        vert1 = case_names[i]
+        vert2 = case_names[i + 1]
+        pair_key = (i + 1, i + 2)
+        
+        if pair_key not in pairings:
+            print(f"SKIPPED - {pair_key} not found in pairings")
+            continue
+            
+        # point pairs for this IVD
+        pts1 = pairings[pair_key]['L_i'] 
+        pts2 = pairings[pair_key]['L_j']
+        initial_distances = pairings[pair_key]['d0']
+        
+        # transform points to fixed space
+        tx1 = transforms_list[i]
+        tx2 = transforms_list[i + 1]
+        
+        pts1_transformed = np.array([tx1.TransformPoint(p.tolist()) for p in pts1])
+        pts2_transformed = np.array([tx2.TransformPoint(p.tolist()) for p in pts2])
+        
+        # compute current pairwise distances
+        current_distances = np.linalg.norm(pts1_transformed - pts2_transformed, axis=1)
+
+        # LOSS COMPONENT 1: COLLISION AVOIDANCE (HARD)
+        collision_threshold = 1.5  # mm - hard collision boundary
+        violations = collision_threshold - current_distances
+        violations = np.maximum(0, violations)
+        
+        # exp penalty - gets severe as penetration deepens
+        collision_penalty = np.sum(np.exp(violations) - 1.0)
+        n_collisions = np.sum(current_distances < collision_threshold)
+        
+        # LOSS COMPONENT 2: PRESERVE MEAN SPACING (SOFT)
+        initial_mean = np.mean(initial_distances)
+        current_mean = np.mean(current_distances)
+        
+        # tolerance, ~2x std as natural variation
+        tolerance = 1.5  # mm - allows curvature/natural compression
+        mean_deviation = abs(current_mean - initial_mean) - tolerance
+        
+        if mean_deviation > 0:
+            mean_spacing_penalty = mean_deviation ** 2
+        else:
+            mean_spacing_penalty = 0.0
+
+        w_collision = 1.0   # CRITICAL - prevent collisions, mayeb try 2?
+        w_mean_spacing = 0.01   # Moderate - maintain anatomy
+        
+        pair_loss = (
+            w_collision * collision_penalty +
+            w_mean_spacing * mean_spacing_penalty
+        )
+        
+        total_loss += pair_loss
+        
+        # store metrics
+        metrics[pair_key] = {
+            'current_mean': float(current_mean),
+            'initial_mean': float(initial_mean),
+            'current_min': float(np.min(current_distances)),
+            'current_max': float(np.max(current_distances)),
+            'current_std': float(np.std(current_distances)),
+            'n_collisions': int(n_collisions),
+            'collision_loss': float(w_collision * collision_penalty),
+            'mean_spacing_loss': float(w_mean_spacing * mean_spacing_penalty),
+            'total_loss': float(pair_loss)
+        }
+    
+    return total_loss, metrics
+
+
 def compute_inter_vertebral_displacement_penalty(moved_centroids, case_centroids, case_axes, transforms_list, margins):
 
     # constraint relative displacement between neighboring vertebrae along anatomical axes.
