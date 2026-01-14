@@ -59,7 +59,7 @@ def compute_ivd_collision_loss(pairings, transforms_list, case_names):
             mean_spacing_penalty = 0.0
 
         w_collision = 1.0   # CRITICAL - prevent collisions, mayeb try 2?
-        w_mean_spacing = 0.01   # Moderate - maintain anatomy
+        w_mean_spacing = 0.1   # Moderate - maintain anatomy
         
         pair_loss = (
             w_collision * collision_penalty +

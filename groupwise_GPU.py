@@ -103,7 +103,7 @@ def evaluate_group_gpu(flat_params, K, centers, sampled_positions_list,
 
 
     # INTER-VERTEBRAL DISPLACEMENT PENALTY
-    lambda_axes = 0.0
+    lambda_axes = 0.01 # 0.01
     axes_margins = { # mm values
         'LM': 3.0,  # STRICT - very little Lateral-Medial sliding
         'AP': 3.0,  # Anterior-Posterior margin Anterior-Posterior
@@ -116,7 +116,7 @@ def evaluate_group_gpu(flat_params, K, centers, sampled_positions_list,
 
 
     # IVD POINT PAIR PENALTY
-    lambda_ivd = 0.5 # weight
+    lambda_ivd = 0.001 # weight
     ivd_loss, ivd_metrics = compute_ivd_collision_loss(pairings, transforms_list, case_names)
 
 
@@ -439,9 +439,9 @@ if __name__ == "__main__":
             print(f"{case}: no landmarks available -> TRE not computed")
         else:
             print()
-            print(f"{case}: TRE = {tre:.4f}")
+            print(f"{case}: TRE = {tre:.1f}")
 
-
+    # loss_arr = np.array(loss_history)
     mean_sim_arr = np.array(mean_sim_history)
     axes_penalty_arr = np.array(axes_penalty_history)
     ivd_loss_arr = np.array(ivd_loss_history) 
@@ -449,10 +449,12 @@ if __name__ == "__main__":
 
 
     # LOSS PLOTTING
-    plt.figure(figsize=(10,6))
+    plt.figure(figsize=(10, 6))
+    # plt.plot(loss_arr, 'x', label='Total Loss', linestyle='None')
     plt.plot(mean_sim_arr, 'o', label='Mean Similarity', linestyle='None')
     plt.plot(axes_penalty_arr, 's', label='Axes Penalty', linestyle='None')
-    plt.plot(ivd_loss_arr, '^', label='IVD Spacing Loss', linestyle='None')  # plot IVD loss
+    plt.plot(ivd_loss_arr, '^', label='IVD Spacing Loss', linestyle='None')
+
     plt.xlabel('CMA Evaluation Step')
     plt.ylabel('Value')
     plt.title('CMA Optimization Metrics per Evaluation')
@@ -461,8 +463,8 @@ if __name__ == "__main__":
     plt.tight_layout()
     plt.savefig("optimization_metrics.png", dpi=150)
     plt.close()
+
     print("Saved optimization_metrics.png in current directory.")
-    print("DONE.")
 
 
     '''
