@@ -2,6 +2,7 @@ import SimpleITK as sitk
 import matplotlib.pyplot as plt
 import numpy as np
 from CT_axis import compute_ct_axes
+from centroid import compute_centroid
 
 def resample_to_reference(image, reference_image):
     """
