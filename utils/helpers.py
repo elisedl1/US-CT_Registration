@@ -36,6 +36,25 @@ def compute_ivd_collision_loss(pairings, transforms_list, case_names):
         # compute current pairwise distances
         current_distances = np.linalg.norm(pts1_transformed - pts2_transformed, axis=1)
 
+
+        # cosine similiarity between current vectors and v0
+        w_direction = 1.0
+        v0 = pairings[pair_key]['v0']  # precomputed initial vectors
+        v_current = pts2_transformed - pts1_transformed
+
+        # normalize
+        v0_norm = v0 / (np.linalg.norm(v0, axis=1, keepdims=True) + 1e-8)
+        v_current_norm = v_current / (np.linalg.norm(v_current, axis=1, keepdims=True) + 1e-8)
+
+        # cosine similarity
+        cos_sim = np.einsum("ij,ij->i", v0_norm, v_current_norm)
+
+        # directional penalty if vectors flip (cos_sim < 0)
+        flip_idx = cos_sim < 0
+        direction_penalty = np.sum(np.exp(-cos_sim[flip_idx]) - 1.0)
+
+
+
         # LOSS COMPONENT 1: COLLISION AVOIDANCE (HARD)
         collision_threshold = 1.5  # mm - hard collision boundary
         violations = collision_threshold - current_distances
@@ -63,7 +82,8 @@ def compute_ivd_collision_loss(pairings, transforms_list, case_names):
         
         pair_loss = (
             w_collision * collision_penalty +
-            w_mean_spacing * mean_spacing_penalty
+            w_mean_spacing * mean_spacing_penalty +
+            w_direction * direction_penalty
         )
         
         total_loss += pair_loss

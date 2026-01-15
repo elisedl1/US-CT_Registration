@@ -219,8 +219,8 @@ if __name__ == "__main__":
 
     # read single US volume once
     # fixed_file = os.path.join(cases_dir, 'US_complete.nrrd')
-    # fixed_file = os.path.join(cases_dir, 'US_full_L3_dropoutref.nrrd')
-    fixed_file = os.path.join(cases_dir, 'US_full_L2_L3_dropoutref.nrrd')
+    fixed_file = os.path.join(cases_dir, 'US_full_L3_dropoutref.nrrd')
+    # fixed_file = os.path.join(cases_dir, 'US_full_L2_L3_dropoutref.nrrd')
     fixed_parser = PyNrrdParser(fixed_file) 
 
     # precompute per-case data
@@ -494,26 +494,26 @@ if __name__ == "__main__":
 
 
 
-    # IVD final solution analysis
-    final_ivd_loss, final_ivd_metrics = compute_ivd_collision_loss(
-        pairings=pairings,
-        transforms_list=final_transforms,
-        case_names=case_names
-    )
+    # # IVD final solution analysis
+    # final_ivd_loss, final_ivd_metrics = compute_ivd_collision_loss(
+    #     pairings=pairings,
+    #     transforms_list=final_transforms,
+    #     case_names=case_names
+    # )
 
-    print("\n=== FINAL SOLUTION IVD CHECK ===")
-    print(f"Weighted IVD loss (λ): {0.1 * final_ivd_loss:.4f}")
+    # print("\n=== FINAL SOLUTION IVD CHECK ===")
+    # print(f"Weighted IVD loss (λ): {0.1 * final_ivd_loss:.4f}")
 
-    any_collision = False
-    for pair, m in final_ivd_metrics.items():
-        print(f"{pair}: min={m['current_min']:.3f} mm, mean={m['current_mean']:.3f} mm, collisions={m['n_collisions']}")
-        if m['current_min'] < 1.5 or m['n_collisions'] > 0:
-            print("  ⚠️ COLLISION VIOLATION")
-            any_collision = True
-        else:
-            print("  ✅ OK")
+    # any_collision = False
+    # for pair, m in final_ivd_metrics.items():
+    #     print(f"{pair}: min={m['current_min']:.3f} mm, mean={m['current_mean']:.3f} mm, collisions={m['n_collisions']}")
+    #     if m['current_min'] < 1.5 or m['n_collisions'] > 0:
+    #         print("  ⚠️ COLLISION VIOLATION")
+    #         any_collision = True
+    #     else:
+    #         print("  ✅ OK")
 
-    if any_collision:
-        print("FINAL SOLUTION CONTAINS COLLISIONS")
-    else:
-        print("FINAL SOLUTION IS COLLISION-FREE")
+    # if any_collision:
+    #     print("FINAL SOLUTION CONTAINS COLLISIONS")
+    # else:
+    #     print("FINAL SOLUTION IS COLLISION-FREE")
