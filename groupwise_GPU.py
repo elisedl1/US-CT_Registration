@@ -10,6 +10,7 @@ from functools import partial
 import matplotlib.pyplot as plt
 import warnings
 warnings.filterwarnings('ignore')
+import json
 
 from utils.file_parser import SlicerJsonTagParser, PyNrrdParser
 from utils.helpers import sitk_euler_to_matrix, compute_inter_vertebral_displacement_penalty, compute_ivd_collision_loss
@@ -103,7 +104,8 @@ def evaluate_group_gpu(flat_params, K, centers, sampled_positions_list,
 
 
     # INTER-VERTEBRAL DISPLACEMENT PENALTY
-    lambda_axes = 0.01 # 0.01
+    # lambda_axes = 0.01
+    lambda_axes = 0.0
     axes_margins = { # mm values
         'LM': 3.0,  # STRICT - very little Lateral-Medial sliding
         'AP': 3.0,  # Anterior-Posterior margin Anterior-Posterior
@@ -116,7 +118,8 @@ def evaluate_group_gpu(flat_params, K, centers, sampled_positions_list,
 
 
     # IVD POINT PAIR PENALTY
-    lambda_ivd = 0.001 # weight
+    lambda_ivd = 0.1 # weight
+    # lambda_ivd = 0.0
     ivd_loss, ivd_metrics = compute_ivd_collision_loss(pairings, transforms_list, case_names)
 
 
@@ -139,9 +142,15 @@ def evaluate_group_gpu(flat_params, K, centers, sampled_positions_list,
     #     f"total_loss: {-float(mean_sim) + lambda_centroid * centroid_penalty + lambda_axes * axes_penalty:.4f}"
     # )
 
-    return total_loss, float(mean_sim), float(axes_penalty * lambda_axes), float(ivd_loss * lambda_ivd)
-    # return -float(mean_sim) + (lambda_centroid * centroid_penalty) + (lambda_axes * axes_penalty)
+    # return total_loss, float(mean_sim), float(axes_penalty * lambda_axes), float(ivd_loss * lambda_ivd)
 
+    return (
+        total_loss,
+        float(mean_sim),
+        float(axes_penalty * lambda_axes),
+        float(ivd_loss * lambda_ivd),
+        ivd_metrics
+    )
 
 
 
@@ -388,20 +397,35 @@ if __name__ == "__main__":
     loss_history = []
     mean_sim_history = []
     axes_penalty_history = []
-    ivd_loss_history = []  
+    ivd_loss_history = [] 
+    ivd_log = []
 
 
     while not es.stop():
         solutions = es.ask()
         values = []
         for sol in solutions:
-            val, mean_sim, axes_pen, ivd_loss = partial_eval(sol)  # unpack with ivd_loss
+            val, mean_sim, axes_pen, ivd_loss, ivd_metrics = partial_eval(sol)  # unpack with ivd_loss
             values.append(val)
             mean_sim_history.append(mean_sim)
             axes_penalty_history.append(axes_pen)
             ivd_loss_history.append(ivd_loss)  # store IVD loss
             loss_history.append(val)
+            
+            ivd_log.append({
+                "eval_id": len(ivd_log),
+                "total_loss": float(val),
+                "mean_sim": float(mean_sim),
+                "axes_penalty": float(axes_pen),
+                "ivd_loss": float(ivd_loss),
+                "ivd_metrics": ivd_metrics
+            })
+
         es.tell(solutions, values)
+
+    # IVD analysis 
+    with open(os.path.join(output_dir, "ivd_diagnostics.json"), "w") as f:
+        json.dump(ivd_log, f, indent=2)
 
     elapsed = time.time() - start_time
     mins = int(elapsed // 60)
@@ -467,8 +491,29 @@ if __name__ == "__main__":
     print("Saved optimization_metrics.png in current directory.")
 
 
-    '''
-    Ius(x) * Ict(T(x))
 
-    Ius(T-1(x))
-    '''
+
+
+    # IVD final solution analysis
+    final_ivd_loss, final_ivd_metrics = compute_ivd_collision_loss(
+        pairings=pairings,
+        transforms_list=final_transforms,
+        case_names=case_names
+    )
+
+    print("\n=== FINAL SOLUTION IVD CHECK ===")
+    print(f"Weighted IVD loss (λ): {0.1 * final_ivd_loss:.4f}")
+
+    any_collision = False
+    for pair, m in final_ivd_metrics.items():
+        print(f"{pair}: min={m['current_min']:.3f} mm, mean={m['current_mean']:.3f} mm, collisions={m['n_collisions']}")
+        if m['current_min'] < 1.5 or m['n_collisions'] > 0:
+            print("  ⚠️ COLLISION VIOLATION")
+            any_collision = True
+        else:
+            print("  ✅ OK")
+
+    if any_collision:
+        print("FINAL SOLUTION CONTAINS COLLISIONS")
+    else:
+        print("FINAL SOLUTION IS COLLISION-FREE")

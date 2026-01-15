@@ -67,9 +67,12 @@ def compute_ivd_collision_loss(pairings, transforms_list, case_names):
         )
         
         total_loss += pair_loss
+
+        pair_name = f"L{pair_key[0]}-L{pair_key[1]}"
         
         # store metrics
-        metrics[pair_key] = {
+        metrics[pair_name] = {
+            'pair_idx': pair_key,   # optional: keep numeric version
             'current_mean': float(current_mean),
             'initial_mean': float(initial_mean),
             'current_min': float(np.min(current_distances)),
