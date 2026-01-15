@@ -92,10 +92,14 @@ def compute_adjacent_vertebra_pairings(mesh_dir, n_sample=30000, n_pairs=500,
             dists[keep], pts_i[keep], pts_j[idx[keep]], k=outlier_k
         )
 
+        # compute initial vector from L_i -> L_j
+        v0 = L_j_filtered - L_i_filtered
+
         pairings[(lvl_i, lvl_j)] = {
             "L_i": L_i_filtered,
             "L_j": L_j_filtered,
-            "d0": d_filtered
+            "d0": d_filtered,
+            "v0": v0   # precomputed direction vectors
         }
 
         # clean up meshes to avoid errors
@@ -126,25 +130,25 @@ def visualize_pairings(mesh_i, mesh_j, pairs_i, pairs_j, subsample=200):
     plotter.close()
     del plotter
 
-if __name__ == "__main__":
+# if __name__ == "__main__":
 
-    mesh_dir = "/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/CT_segmentations/cropped/intra1"
+#     mesh_dir = "/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/CT_segmentations/cropped/intra1"
 
-    pairings, meshes = compute_adjacent_vertebra_pairings(
-        mesh_dir,
-        n_sample=30000,
-        n_pairs=500,
-        max_dist=8.0,
-        seed=42,
-        outlier_k=3.5  # MAD threshold
-    )
+#     pairings, meshes = compute_adjacent_vertebra_pairings(
+#         mesh_dir,
+#         n_sample=30000,
+#         n_pairs=500,
+#         max_dist=8.0,
+#         seed=42,
+#         outlier_k=3.5  # MAD threshold
+#     )
 
-    for (lvl_i, lvl_j), data in pairings.items():
-        print(f"Visualizing L{lvl_i}-L{lvl_j} ({len(data['L_i'])} pairs after filtering)")
-        visualize_pairings(
-            meshes[lvl_i],
-            meshes[lvl_j],
-            data["L_i"],
-            data["L_j"],
-            subsample=150
-        )
+#     for (lvl_i, lvl_j), data in pairings.items():
+#         print(f"Visualizing L{lvl_i}-L{lvl_j} ({len(data['L_i'])} pairs after filtering)")
+#         visualize_pairings(
+#             meshes[lvl_i],
+#             meshes[lvl_j],
+#             data["L_i"],
+#             data["L_j"],
+#             subsample=150
+#         )
