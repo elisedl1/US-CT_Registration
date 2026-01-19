@@ -104,8 +104,8 @@ def evaluate_group_gpu(flat_params, K, centers, sampled_positions_list,
 
 
     # INTER-VERTEBRAL DISPLACEMENT PENALTY
-    # lambda_axes = 0.01
-    lambda_axes = 0.0
+    lambda_axes = 0.01
+    # lambda_axes = 0.0
     axes_margins = { # mm values
         'LM': 3.0,  # STRICT - very little Lateral-Medial sliding
         'AP': 3.0,  # Anterior-Posterior margin Anterior-Posterior
@@ -118,7 +118,7 @@ def evaluate_group_gpu(flat_params, K, centers, sampled_positions_list,
 
 
     # IVD POINT PAIR PENALTY
-    lambda_ivd = 0.1 # weight
+    lambda_ivd = 0.001 # weight
     # lambda_ivd = 0.0
     ivd_loss, ivd_metrics = compute_ivd_collision_loss(pairings, transforms_list, case_names)
 
@@ -165,7 +165,7 @@ if __name__ == "__main__":
     
     # SETTINGS
     # form
-    mesh_dir = '/usr/local/data/elise/pig_data/pig2/Registration/cropped'
+    mesh_dir = '/usr/local/data/elise/pig_data/pig2/Registration/cropped/intra1'
     cases_dir = '/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans/intra1/Cases'
     output_dir = '/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans/intra1/output_python_cma_group_allcases'
 
@@ -244,7 +244,7 @@ if __name__ == "__main__":
         mask = moving_tensor > 0 # ct image
         ct_mask_indices = torch.stack(torch.where(mask), dim=-1)
         num_vox = ct_mask_indices.shape[0]
-        samples_count = min(10000, num_vox)
+        samples_count = min(2000, num_vox)
         if samples_count == 0:
             raise RuntimeError(f"No positive voxels found in fixed file {fixed_file} for case {case}")
 
