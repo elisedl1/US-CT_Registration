@@ -56,7 +56,7 @@ def compute_ivd_collision_loss(pairings, transforms_list, case_names):
 
 
         # LOSS COMPONENT 1: COLLISION AVOIDANCE (HARD)
-        collision_threshold = 1.5  # mm - hard collision boundary
+        collision_threshold = 1.0  # mm - hard collision boundary
         violations = collision_threshold - current_distances
         violations = np.maximum(0, violations)
         
@@ -78,7 +78,7 @@ def compute_ivd_collision_loss(pairings, transforms_list, case_names):
             mean_spacing_penalty = 0.0
 
         w_collision = 1.0   # CRITICAL - prevent collisions, mayeb try 2?
-        w_mean_spacing = 0.1   # Moderate - maintain anatomy
+        w_mean_spacing = 0.5   # Moderate - maintain anatomy
         
         pair_loss = (
             w_collision * collision_penalty +
