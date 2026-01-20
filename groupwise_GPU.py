@@ -11,6 +11,7 @@ import matplotlib.pyplot as plt
 import warnings
 warnings.filterwarnings('ignore')
 import json
+from collections import defaultdict
 
 from utils.file_parser import SlicerJsonTagParser, PyNrrdParser
 from utils.helpers import sitk_euler_to_matrix, compute_inter_vertebral_displacement_penalty, compute_ivd_collision_loss
@@ -18,7 +19,6 @@ from utils.similarity import IntensitySimilarity
 from extra.centroid import compute_centroid
 from extra.CT_axis import compute_ct_axes
 from extra.IVD_points import compute_adjacent_vertebra_pairings
-
 
 
 
@@ -43,7 +43,8 @@ def compute_case_tre(flat_params):
 def evaluate_group_gpu(flat_params, K, centers, sampled_positions_list,
                        moving_parsers, fixed_parser,
                        case_centroids, orig_dists, case_axes, pairings, case_names,
-                       device='cuda'):
+                       device='cuda', profile=False):
+
 
     total_sim = 0.0
     transforms_params = []
@@ -51,22 +52,25 @@ def evaluate_group_gpu(flat_params, K, centers, sampled_positions_list,
     transforms_list = []
 
     for k in range(K):
+
         params = torch.tensor(flat_params[6*k:6*(k+1)], dtype=torch.float32, device=device)
         transforms_params.append(params.cpu().numpy())
 
-        # get transformation
+        # get transformation       
         tx = sitk.Euler3DTransform()
         tx.SetCenter(centers[k].tolist())
         tx.SetParameters(flat_params[6*k:6*(k+1)].tolist())
         tx_inv = tx.GetInverse() # inverse transformm CT -> US
-        transforms_list.append(tx_inv) # inverse or regular?????
+        transforms_list.append(tx_inv)
+    
 
         # sampled CT surface points - x from CT
         sampled_positions = sampled_positions_list[k].to(device=device, dtype=torch.float64) 
 
-        # transform CT -> US
+        # transform CT -> US       
         M = sitk_euler_to_matrix(tx_inv) 
         M_torch = torch.from_numpy(M).to(device=device, dtype=torch.float64) 
+        
         N = sampled_positions.shape[0]
         pts_h = torch.cat([sampled_positions, torch.ones((N, 1), device=device, dtype=sampled_positions.dtype)], dim=1)
         moved_positions = (pts_h @ M_torch.T)[:, :3]
@@ -78,71 +82,42 @@ def evaluate_group_gpu(flat_params, K, centers, sampled_positions_list,
         # mean iUS intensity metric
         sim = torch.mean(moving_intensities)
         total_sim += sim
-
+        
         # centroid transform
+        
         ct_centroid = torch.tensor(case_centroids[k], device=device, dtype=torch.float32)
-
-        # transform into fixed US space - use inverse
         moved_centroid = torch.tensor(tx_inv.TransformPoint(ct_centroid.cpu().numpy().tolist()), device=device)
         moved_centroids.append(moved_centroid.cpu().numpy())
 
     mean_sim = total_sim / float(K)
 
 
-    # CENTROID DISTANCE PENALTY
-    # penalize if centroids become < margin_mm apart
-    lambda_centroid = 0.0
-    margin_mm = 4.0
-    centroid_penalty = 0.0
-    if K > 1:
-        for k in range(K-1):
-            new_dist = np.linalg.norm(moved_centroids[k] - moved_centroids[k+1])
-            diff = abs(new_dist - orig_dists[k]) - margin_mm
-            if diff > 0.0:
-                centroid_penalty += diff**2
-        centroid_penalty /= float(K-1)
-
-
     # INTER-VERTEBRAL DISPLACEMENT PENALTY
-    # lambda_axes = 0.01
-    lambda_axes = 0.0
+    lambda_axes = 0.01
     axes_margins = { # mm values
-        'LM': 3.0,  # STRICT - very little Lateral-Medial sliding
-        'AP': 3.0,  # Anterior-Posterior margin Anterior-Posterior
-        'SI': 5.0   # RELAXED - allow some compression of IVD
+        'LM': 3.0,
+        'AP': 3.0,
+        'SI': 5.0
     }
-    # compute penalty per axes
     axes_penalty = compute_inter_vertebral_displacement_penalty(
         moved_centroids, case_centroids, case_axes, transforms_list, axes_margins
     )
 
 
-    # IVD POINT PAIR PENALTY
-    lambda_ivd = 0.1 # weight
-    # lambda_ivd = 0.0
-    ivd_loss, ivd_metrics = compute_ivd_collision_loss(pairings, transforms_list, case_names)
 
+    # IVD POINT PAIR PENALTY
+    lambda_ivd = 0.001
+    ivd_loss, ivd_metrics = compute_ivd_collision_loss(pairings, transforms_list, case_names)
+    
 
 
     # TOTAL LOSS
     total_loss = (
         -float(mean_sim) + 
-        (lambda_centroid * centroid_penalty) + 
         (lambda_axes * axes_penalty) +
         (lambda_ivd * ivd_loss)
     )
 
-
-    # # debug printer
-    # print(
-    #     f"mean_sim: {mean_sim:.4f}, "
-    #     f"centroid_penalty: {lambda_centroid * centroid_penalty:.4f}, "
-    #     f"axes_penalty: {lambda_axes * axes_penalty:.4f}, "
-    #     f"collision_penalty: {lambda_ivd * ivd_loss:.4f}, "
-    #     f"total_loss: {-float(mean_sim) + lambda_centroid * centroid_penalty + lambda_axes * axes_penalty:.4f}"
-    # )
-
-    # return total_loss, float(mean_sim), float(axes_penalty * lambda_axes), float(ivd_loss * lambda_ivd)
 
     return (
         total_loss,
@@ -154,9 +129,6 @@ def evaluate_group_gpu(flat_params, K, centers, sampled_positions_list,
 
 
 
-
-
-
 if __name__ == "__main__":
     
     # suppress PyVista cleanup warnings
@@ -165,7 +137,7 @@ if __name__ == "__main__":
     
     # SETTINGS
     # form
-    mesh_dir = '/usr/local/data/elise/pig_data/pig2/Registration/cropped'
+    mesh_dir = '/usr/local/data/elise/pig_data/pig2/Registration/cropped/intra1'
     cases_dir = '/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans/intra1/Cases'
     output_dir = '/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans/intra1/output_python_cma_group_allcases'
 
@@ -192,7 +164,7 @@ if __name__ == "__main__":
         pairings, meshes = compute_adjacent_vertebra_pairings(
         mesh_dir,
         n_sample=30000,
-        n_pairs=200,# change number of pairs between each vertebra
+        n_pairs=100,# change number of pairs between each vertebra
         max_dist=7.0,
         seed=42
         )
@@ -244,7 +216,7 @@ if __name__ == "__main__":
         mask = moving_tensor > 0 # ct image
         ct_mask_indices = torch.stack(torch.where(mask), dim=-1)
         num_vox = ct_mask_indices.shape[0]
-        samples_count = min(10000, num_vox)
+        samples_count = min(5000, num_vox)
         if samples_count == 0:
             raise RuntimeError(f"No positive voxels found in fixed file {fixed_file} for case {case}")
 
@@ -293,10 +265,6 @@ if __name__ == "__main__":
         
         LM_axis, AP_axis, SI_axis = compute_ct_axes(ct_seg_file)
         case_axes.append((LM_axis, AP_axis, SI_axis))
-        # print(f"  CT axes computed for {case}")
-        # print(f"    LM: {LM_axis}")
-        # print(f"    AP: {AP_axis}")
-        # print(f"    SI: {SI_axis}")
 
 
     # compute centroids of fixed CT once
@@ -309,7 +277,6 @@ if __name__ == "__main__":
 
         c = compute_centroid(seg_file)
         case_centroids.append(np.array(c))
-    # print("\nCentroids:", case_centroids)
 
 
     # compute original inter-centroid distances once
@@ -331,10 +298,9 @@ if __name__ == "__main__":
     # move data to GPU if available
     print("Preparing tensors on GPU...")
     sampled_positions_list_gpu = [torch.from_numpy(pos.astype(np.float32)).cuda() for pos in sampled_positions_list]
-    # fixed_intensities_list_gpu = [x.cuda() for x in fixed_intensities_list]
 
-
-    # create partial evaluate function
+    
+    # create partial evaluate function 
     partial_eval = partial(
         evaluate_group_gpu,
         K=K,
@@ -345,9 +311,10 @@ if __name__ == "__main__":
         case_centroids=case_centroids,
         orig_dists=orig_dists,
         case_axes=case_axes,
-        pairings = pairings,
-        case_names = case_names,
-        device='cuda'
+        pairings=pairings,
+        case_names=case_names,
+        device='cuda',
+        profile=False
     )
 
 
@@ -385,7 +352,6 @@ if __name__ == "__main__":
             'verb_disp': 1,
             'maxiter': 80,
             'tolfun': 1e-5,
-            # 'seed': 772512
         }
     )
 
@@ -400,16 +366,18 @@ if __name__ == "__main__":
     ivd_loss_history = [] 
     ivd_log = []
 
-
     while not es.stop():
         solutions = es.ask()
         values = []
+            
         for sol in solutions:
-            val, mean_sim, axes_pen, ivd_loss, ivd_metrics = partial_eval(sol)  # unpack with ivd_loss
+
+            val, mean_sim, axes_pen, ivd_loss, ivd_metrics = partial_eval(sol)
+                
             values.append(val)
             mean_sim_history.append(mean_sim)
             axes_penalty_history.append(axes_pen)
-            ivd_loss_history.append(ivd_loss)  # store IVD loss
+            ivd_loss_history.append(ivd_loss)
             loss_history.append(val)
             
             ivd_log.append({
@@ -421,22 +389,25 @@ if __name__ == "__main__":
                 "ivd_metrics": ivd_metrics
             })
 
-        es.tell(solutions, values)
+        es.tell(solutions, values)      
+        it += 1
 
-    # IVD analysis 
-    with open(os.path.join(output_dir, "ivd_diagnostics.json"), "w") as f:
-        json.dump(ivd_log, f, indent=2)
 
     elapsed = time.time() - start_time
     mins = int(elapsed // 60)
     secs = elapsed % 60
     print(f"\nGroup CMA finished after {it} iterations — time {mins} min {secs:.2f} sec")
 
-    best_flat = es.result.xbest
-    # print("Best first-6 params (case 1):", best_flat[:6])
+
+    # IVD analysis 
+    with open(os.path.join(output_dir, "ivd_diagnostics.json"), "w") as f:
+        json.dump(ivd_log, f, indent=2)
+
+
 
 
     # save transforms per-case - ALL IN MAIN OUTPUT DIRECTORY
+    best_flat = es.result.xbest
     final_transforms = []
     for k, case in enumerate(case_names):
         params = best_flat[6*k:6*(k+1)]
@@ -444,14 +415,12 @@ if __name__ == "__main__":
         tx.SetCenter(centers[k].tolist())
         tx.SetParameters(params.tolist())
 
-        # print(case, params)
-
-        # Save directly in output_dir with case name suffix
+        # save directly in output_dir with case name suffix
         out_name = os.path.join(output_dir, f"TransformParameters_groupwise_{case}.h5")
         sitk.WriteTransform(tx, out_name)
         print(f"Wrote transform for {case}: {out_name}")
         
-        # Store inverse transform for IVD spacing calculation
+        # store inverse transform for IVD spacing calculation
         tx_inv = tx.GetInverse()
         final_transforms.append(tx_inv)
 
@@ -465,16 +434,13 @@ if __name__ == "__main__":
             print()
             print(f"{case}: TRE = {tre:.1f}")
 
-    # loss_arr = np.array(loss_history)
     mean_sim_arr = np.array(mean_sim_history)
     axes_penalty_arr = np.array(axes_penalty_history)
     ivd_loss_arr = np.array(ivd_loss_history) 
 
 
-
     # LOSS PLOTTING
     plt.figure(figsize=(10, 6))
-    # plt.plot(loss_arr, 'x', label='Total Loss', linestyle='None')
     plt.plot(mean_sim_arr, 'o', label='Mean Similarity', linestyle='None')
     plt.plot(axes_penalty_arr, 's', label='Axes Penalty', linestyle='None')
     plt.plot(ivd_loss_arr, '^', label='IVD Spacing Loss', linestyle='None')
@@ -485,35 +451,7 @@ if __name__ == "__main__":
     plt.legend()
     plt.grid(True)
     plt.tight_layout()
-    plt.savefig("optimization_metrics.png", dpi=150)
+    plt.savefig(("optimization_metrics.png"), dpi=150)
     plt.close()
 
-    print("Saved optimization_metrics.png in current directory.")
-
-
-
-
-
-    # # IVD final solution analysis
-    # final_ivd_loss, final_ivd_metrics = compute_ivd_collision_loss(
-    #     pairings=pairings,
-    #     transforms_list=final_transforms,
-    #     case_names=case_names
-    # )
-
-    # print("\n=== FINAL SOLUTION IVD CHECK ===")
-    # print(f"Weighted IVD loss (λ): {0.1 * final_ivd_loss:.4f}")
-
-    # any_collision = False
-    # for pair, m in final_ivd_metrics.items():
-    #     print(f"{pair}: min={m['current_min']:.3f} mm, mean={m['current_mean']:.3f} mm, collisions={m['n_collisions']}")
-    #     if m['current_min'] < 1.5 or m['n_collisions'] > 0:
-    #         print("  ⚠️ COLLISION VIOLATION")
-    #         any_collision = True
-    #     else:
-    #         print("  ✅ OK")
-
-    # if any_collision:
-    #     print("FINAL SOLUTION CONTAINS COLLISIONS")
-    # else:
-    #     print("FINAL SOLUTION IS COLLISION-FREE")
+    print(f"Saved optimization_metrics.png in {output_dir}")

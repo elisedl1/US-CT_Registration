@@ -20,6 +20,11 @@ class PyNrrdParser:
         self.spacing_zxy = self.sitk_spacing[::-1].astype(np.float64)
         self.origin_zxy = self.sitk_origin[::-1].astype(np.float64)
         self.end_zxy = self.origin_zxy + (self.size - 1) * self.spacing_zxy
+        
+        # ===== ADD THESE THREE LINES FOR GPU CACHING =====
+        self.array_gpu = None  # Cache for GPU tensor
+        self.transform_cache = {}  # Cache for origin/spacing/dir_inv per device/dtype
+        # ================================================
 
     def compute_positions(self, indices: torch.Tensor) -> np.ndarray:
         idx_np = indices.cpu().numpy().astype(np.float64)
@@ -103,28 +108,49 @@ class PyNrrdParser:
         counts = np.maximum(counts, 1)
         return tuple(counts.tolist())
 
+    # ===== REPLACE THE ENTIRE sample_at_physical_points_gpu METHOD =====
     def sample_at_physical_points_gpu(self, positions: torch.Tensor) -> torch.Tensor:
-
-        # ensure positions dtype and device
+        """
+        Optimized GPU sampling with caching to avoid repeated CPU->GPU transfers
+        """
         device = positions.device
-        # mirror CPU version: use sitk_origin (x,y,z) and sitk_spacing (x,y,z)
-        origin = torch.tensor(self.sitk_origin, device=device, dtype=positions.dtype)   # (3,)
-        spacing = torch.tensor(self.sitk_spacing, device=device, dtype=positions.dtype) # (3,)
-        dir_mat = torch.tensor(self.sitk_direction, device=device, dtype=positions.dtype)  # (3,3)
-
-        # offset in (x,y,z)
-        offset = positions - origin 
-        dir_inv = torch.linalg.inv(dir_mat)  
-        idx_xyz = (offset @ dir_inv.T) / spacing 
-        # reorder to z,y,x to match array indexing
+        dtype = positions.dtype
+        
+        # OPTIMIZATION 1: Cache GPU array (convert once, not every call)
+        if self.array_gpu is None or self.array_gpu.device != device:
+            self.array_gpu = torch.from_numpy(self.array).to(device=device, dtype=torch.float32)
+        
+        array_t = self.array_gpu
+        if array_t.dtype != dtype:
+            array_t = array_t.to(dtype)
+        
+        # OPTIMIZATION 2: Cache transform parameters per device/dtype
+        cache_key = (str(device), str(dtype))
+        if cache_key not in self.transform_cache:
+            origin = torch.tensor(self.sitk_origin, device=device, dtype=dtype)
+            spacing = torch.tensor(self.sitk_spacing, device=device, dtype=dtype)
+            dir_mat = torch.tensor(self.sitk_direction, device=device, dtype=dtype)
+            dir_inv = torch.linalg.inv(dir_mat)
+            
+            self.transform_cache[cache_key] = {
+                'origin': origin,
+                'spacing': spacing,
+                'dir_inv': dir_inv
+            }
+        
+        # Use cached values
+        cache = self.transform_cache[cache_key]
+        origin = cache['origin']
+        spacing = cache['spacing']
+        dir_inv = cache['dir_inv']
+        
+        # Transform physical positions to voxel indices
+        offset = positions - origin
+        idx_xyz = (offset @ dir_inv.T) / spacing
         idx_zxy = idx_xyz[:, [2, 1, 0]]
-
-        # convert volume to tensor on device with same dtype as coords
-        array_t = torch.from_numpy(self.array).to(device=device)
-        if array_t.dtype != positions.dtype:
-            array_t = array_t.to(positions.dtype)
-
+        
         return self._trilinear_interpolate_gpu(array_t, idx_zxy)
+    # ===================================================================
     
     
     @staticmethod
