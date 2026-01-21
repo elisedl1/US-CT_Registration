@@ -29,16 +29,32 @@ def compute_ivd_collision_loss(pairings, transforms_list, case_names):
         # transform points to fixed space
         tx1 = transforms_list[i]
         tx2 = transforms_list[i + 1]
-        
         pts1_transformed = np.array([tx1.TransformPoint(p.tolist()) for p in pts1])
         pts2_transformed = np.array([tx2.TransformPoint(p.tolist()) for p in pts2])
         
+
         # compute current pairwise distances
         current_distances = np.linalg.norm(pts1_transformed - pts2_transformed, axis=1)
 
+        # if pair_key == (2, 3):
+        #     d0 = initial_distances
+        #     d = current_distances
+        #     min_allowed = (1.0 - max_compression_frac) * d0
 
+        #     print("\n=== L2–L3 SPACING DIAGNOSTICS ===")
+        #     print(f"initial mean: {np.mean(d0):.2f} mm")
+        #     print(f"initial min : {np.min(d0):.2f} mm")
+        #     print(f"current mean: {np.mean(d):.2f} mm")
+        #     print(f"current min : {np.min(d):.2f} mm")
+        #     print(f"min_allowed mean: {np.mean(min_allowed):.2f} mm")
+        #     print(f"min_allowed min : {np.min(min_allowed):.2f} mm")
+
+        #     print(f"#points below min_allowed: {np.sum(d < min_allowed)} / {len(d)}")
+        #     print(f"max violation (mm): {np.max(np.maximum(0, min_allowed - d)):.2f}")
+
+
+        # LOSS COMPONENT #1: DIRECTION VECTOR FLIPPING (collision)
         # cosine similiarity between current vectors and v0
-        w_direction = 1.0
         v0 = pairings[pair_key]['v0']  # precomputed initial vectors
         v_current = pts2_transformed - pts1_transformed
 
@@ -55,7 +71,7 @@ def compute_ivd_collision_loss(pairings, transforms_list, case_names):
 
 
 
-        # LOSS COMPONENT 1: COLLISION AVOIDANCE (HARD)
+        # LOSS COMPONENT 2: COLLISION AVOIDANCE (HARD)
         collision_threshold = 1.0  # mm - hard collision boundary
         violations = collision_threshold - current_distances
         violations = np.maximum(0, violations)
@@ -64,11 +80,24 @@ def compute_ivd_collision_loss(pairings, transforms_list, case_names):
         collision_penalty = np.sum(np.exp(violations) - 1.0)
         n_collisions = np.sum(current_distances < collision_threshold)
         
-        # LOSS COMPONENT 2: PRESERVE MEAN SPACING (SOFT)
+
+
+        # LOSS COMPONENT 3a: PRESERVE MIN SPACING (SOFT)
+        max_compression_frac = 0.35 # percentile
+        min_allowed = (1.0 - max_compression_frac) * initial_distances
+
+        spacing_violations = min_allowed - current_distances
+        spacing_violations = np.maximum(0, spacing_violations)
+
+        relative_spacing_penalty = np.mean(spacing_violations ** 2) # try .sum?
+
+
+
+        # LOSS COMPONENT 3b: PRESERVE MEAN SPACING (SOFT)
         initial_mean = np.mean(initial_distances)
         current_mean = np.mean(current_distances)
         
-        # tolerance, ~2x std as natural variation
+        # tolerance
         tolerance = 1.5  # mm - allows curvature/natural compression
         mean_deviation = abs(current_mean - initial_mean) - tolerance
         
@@ -77,11 +106,17 @@ def compute_ivd_collision_loss(pairings, transforms_list, case_names):
         else:
             mean_spacing_penalty = 0.0
 
-        w_collision = 1.0   # CRITICAL - prevent collisions, mayeb try 2?
-        w_mean_spacing = 0.5   # Moderate - maintain anatomy
+
+
+        # COMPUTE LOSS
+        w_collision = 1.0   # critical - prevent collisions, mayeb try 2?
+        w_mean_spacing = 0.5   # moderate - maintain anatomy
+        w_direction = 1.0
+        w_relative_spacing = 1.0
         
         pair_loss = (
             w_collision * collision_penalty +
+            w_relative_spacing * relative_spacing_penalty +
             w_mean_spacing * mean_spacing_penalty +
             w_direction * direction_penalty
         )
@@ -92,7 +127,7 @@ def compute_ivd_collision_loss(pairings, transforms_list, case_names):
         
         # store metrics
         metrics[pair_name] = {
-            'pair_idx': pair_key,   # optional: keep numeric version
+            'pair_idx': pair_key,   
             'current_mean': float(current_mean),
             'initial_mean': float(initial_mean),
             'current_min': float(np.min(current_distances)),
