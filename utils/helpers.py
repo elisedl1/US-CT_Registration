@@ -189,30 +189,50 @@ def compute_inter_vertebral_displacement_penalty(moved_centroids, case_centroids
         
         SI_axis_avg = (SI_axis_k_transformed + SI_axis_k1_transformed) / 2.0
         SI_axis_avg = SI_axis_avg / np.linalg.norm(SI_axis_avg)
-        
+
+
+        # SI TWIST PENALTY
+        # take LM axes (could also use AP)
+        LM_k = LM_axis_k_transformed
+        LM_k1 = LM_axis_k1_transformed
+
+        LM_k_proj = LM_k - np.dot(LM_k, SI_axis_avg) * SI_axis_avg
+        LM_k1_proj = LM_k1 - np.dot(LM_k1, SI_axis_avg) * SI_axis_avg
+
+        LM_k_proj /= np.linalg.norm(LM_k_proj)
+        LM_k1_proj /= np.linalg.norm(LM_k1_proj)
 
         # project relative position onto averaged transformed axes
         LM_component = abs(np.dot(relative_vec, LM_axis_avg))
         AP_component = abs(np.dot(relative_vec, AP_axis_avg))
         SI_component = abs(np.dot(relative_vec, SI_axis_avg))
+
+        # angle between projected LM axes = twist about SI
+        cos_theta = np.clip(np.dot(LM_k_proj, LM_k1_proj), -1.0, 1.0)
+        twist_angle = np.arccos(cos_theta)  
+        SI_rot_violation = max(0.0, twist_angle - margins['SI_rot'])
         
 
-        # Penalize if lateral or AP separation is too large (anatomically implausible)
+        # penalize if lateral or AP separation is too large (anatomically implausible)
         LM_magnitude = abs(LM_component)
         AP_magnitude = abs(AP_component)
         
         LM_violation = max(0.0, LM_magnitude - margins['LM'])
         AP_violation = max(0.0, AP_magnitude - margins['AP'])
         
-        # For SI: Check if compression/extension is excessive
-        # We expect some SI separation, so check change from original
+        # For SI: check if compression/extension is excessive
+        # expect some SI separation, so check change from original
         original_relative_vec = case_centroids[k+1] - case_centroids[k]
         original_SI = abs(np.dot(original_relative_vec, SI_axis_avg))
         SI_change = abs(abs(SI_component) - original_SI)
         SI_violation = max(0.0, SI_change - margins['SI'])
 
-        penalty += LM_violation**2 + AP_violation**2 + SI_violation**2
-
+        penalty += (
+            LM_violation**2 +
+            AP_violation**2 +
+            SI_violation**2 +
+            SI_rot_violation**2
+        )
     
     return penalty / float(K - 1)
 

@@ -97,7 +97,8 @@ def evaluate_group_gpu(flat_params, K, centers, sampled_positions_list,
     axes_margins = { # mm values
         'LM': 3.0,
         'AP': 3.0,
-        'SI': 5.0
+        'SI': 5.0,
+        'SI_rot' : np.deg2rad(20)
     }
     axes_penalty = compute_inter_vertebral_displacement_penalty(
         moved_centroids, case_centroids, case_axes, transforms_list, axes_margins
