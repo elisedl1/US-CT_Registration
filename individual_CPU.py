@@ -63,15 +63,16 @@ def evaluate(flat_params, center, sampled_positions, moving_parser):
 
 if __name__ == "__main__":
     
-    case_name = 'L1'
+    case_name = 'L4'
     cases_dir = '/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/Known_Trans/intra1/Cases'
     output_dir = f'/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/Known_Trans/intra1/output_python_cma/{case_name}'
     os.makedirs(output_dir, exist_ok=True)
     
     case_path = os.path.join(cases_dir, case_name)
     # fixed_file = os.path.join(case_path, 'fixed.nrrd')  # US
-    fixed_file = os.path.join(cases_dir, 'US_complete.nrrd')  # US full L1-L4
+    # fixed_file = os.path.join(cases_dir, 'US_complete.nrrd')  # US full L1-L4
     # fixed_file = os.path.join(cases_dir, 'US_full_L2_L3_dropoutref.nrrd')
+    fixed_file = os.path.join(cases_dir, 'US_full_L3_dropoutref.nrrd')
     moving_file = os.path.join(case_path, 'moving.nrrd')  # CT
     
     print(f"Processing case {case_name}...")
