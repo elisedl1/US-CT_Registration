@@ -36,23 +36,6 @@ def compute_ivd_collision_loss(pairings, transforms_list, case_names):
         # compute current pairwise distances
         current_distances = np.linalg.norm(pts1_transformed - pts2_transformed, axis=1)
 
-        # if pair_key == (2, 3):
-        #     d0 = initial_distances
-        #     d = current_distances
-        #     min_allowed = (1.0 - max_compression_frac) * d0
-
-        #     print("\n=== L2–L3 SPACING DIAGNOSTICS ===")
-        #     print(f"initial mean: {np.mean(d0):.2f} mm")
-        #     print(f"initial min : {np.min(d0):.2f} mm")
-        #     print(f"current mean: {np.mean(d):.2f} mm")
-        #     print(f"current min : {np.min(d):.2f} mm")
-        #     print(f"min_allowed mean: {np.mean(min_allowed):.2f} mm")
-        #     print(f"min_allowed min : {np.min(min_allowed):.2f} mm")
-
-        #     print(f"#points below min_allowed: {np.sum(d < min_allowed)} / {len(d)}")
-        #     print(f"max violation (mm): {np.max(np.maximum(0, min_allowed - d)):.2f}")
-
-
         # LOSS COMPONENT #1: DIRECTION VECTOR FLIPPING (collision)
         # cosine similiarity between current vectors and v0
         v0 = pairings[pair_key]['v0']  # precomputed initial vectors

@@ -95,10 +95,10 @@ def evaluate_group_gpu(flat_params, K, centers, sampled_positions_list,
     # INTER-VERTEBRAL DISPLACEMENT PENALTY
     lambda_axes = 0.01
     axes_margins = { # mm values
-        'LM': 3.0,
-        'AP': 3.0,
+        'LM': 2.0,
+        'AP': 2.0,
         'SI': 5.0,
-        'SI_rot' : np.deg2rad(20)
+        'SI_rot' : np.deg2rad(10)
     }
     axes_penalty = compute_inter_vertebral_displacement_penalty(
         moved_centroids, case_centroids, case_axes, transforms_list, axes_margins
@@ -113,8 +113,9 @@ def evaluate_group_gpu(flat_params, K, centers, sampled_positions_list,
 
 
     # TOTAL LOSS
+    sim_weight = 2.0
     total_loss = (
-        -float(mean_sim) + 
+        sim_weight * -float(mean_sim) + 
         (lambda_axes * axes_penalty) +
         (lambda_ivd * ivd_loss)
     )
@@ -122,7 +123,7 @@ def evaluate_group_gpu(flat_params, K, centers, sampled_positions_list,
 
     return (
         total_loss,
-        float(mean_sim),
+        float(mean_sim * (sim_weight)),
         float(axes_penalty * lambda_axes),
         float(ivd_loss * lambda_ivd),
         ivd_metrics
@@ -192,7 +193,8 @@ if __name__ == "__main__":
 
     # read single US volume once
     # fixed_file = os.path.join(cases_dir, 'US_complete.nrrd')
-    fixed_file = os.path.join(cases_dir, 'US_full_L3_dropoutref.nrrd')
+    fixed_file = os.path.join(cases_dir, 'US_complete_cal.nrrd')
+    # fixed_file = os.path.join(cases_dir, 'US_full_L3_dropoutref.nrrd')
     # fixed_file = os.path.join(cases_dir, 'US_full_L2_L3_dropoutref.nrrd')
     fixed_parser = PyNrrdParser(fixed_file) 
 
@@ -435,9 +437,10 @@ if __name__ == "__main__":
             print()
             print(f"{case}: TRE = {tre:.1f}")
 
-    mean_sim_arr = np.array(mean_sim_history)
+    mean_sim_arr = -1 * np.array(mean_sim_history)
     axes_penalty_arr = np.array(axes_penalty_history)
     ivd_loss_arr = np.array(ivd_loss_history) 
+    loss_arr = np.array(loss_history)
 
 
     # LOSS PLOTTING
@@ -445,6 +448,8 @@ if __name__ == "__main__":
     plt.plot(mean_sim_arr, 'o', label='Mean Similarity', linestyle='None')
     plt.plot(axes_penalty_arr, 's', label='Axes Penalty', linestyle='None')
     plt.plot(ivd_loss_arr, '^', label='IVD Spacing Loss', linestyle='None')
+
+    plt.plot(loss_arr, '.', label='Total Loss ', linestyle='None')
 
     plt.xlabel('CMA Evaluation Step')
     plt.ylabel('Value')
