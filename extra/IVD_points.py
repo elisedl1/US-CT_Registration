@@ -52,13 +52,13 @@ def filter_outlier_pairs(dists, pairs_i, pairs_j, k=2.5):
     keep_idx = np.where((dists >= lower) & (dists <= upper))[0]
     return pairs_i[keep_idx], pairs_j[keep_idx], dists[keep_idx]
 
-def compute_adjacent_vertebra_pairings(mesh_dir, n_sample=30000, n_pairs=500,
+def compute_adjacent_vertebra_pairings(mesh_dir, suffix, n_sample=30000, n_pairs=500,
                                        max_dist=8.0, seed=42, outlier_k=2.5):
 
     np.random.seed(seed)
 
     # load and sort meshes
-    files = [f for f in os.listdir(mesh_dir) if f.endswith(".vtk") and re.search(r"L\d+", f)]
+    files = [f for f in os.listdir(mesh_dir) if f.endswith(suffix) and re.search(r"L\d+", f)]
     levels = [(parse_level(f), f) for f in files]
     levels.sort(key=lambda x: x[0])
 
@@ -133,13 +133,13 @@ def visualize_pairings(mesh_i, mesh_j, pairs_i, pairs_j, subsample=200):
 if __name__ == "__main__":
 
     # for IVD
-    # mesh_dir = "/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/CT_segmentations/cropped/intra1"
-
-    # for facet joints
-    mesh_dir = "/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/CT_segmentations/intra1_seg/vtk"
+    mesh_dir = "/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/CT_segmentations/cropped/intra1"
+    suffix = "_body.vtk"
+    suffix = "_upper.vtk"
 
     pairings, meshes = compute_adjacent_vertebra_pairings(
         mesh_dir,
+        suffix,
         n_sample=30000,
         n_pairs=500,
         max_dist=8.0,
