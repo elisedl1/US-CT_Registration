@@ -151,7 +151,7 @@ if __name__ == "__main__":
     cases_dir = '/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans/intra1/Cases'
     output_dir = '/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans/intra1/output_python_cma_group_allcases'
 
-    USE_GLOBAL_RANDOM_PERTURBATION = False
+    USE_GLOBAL_RANDOM_PERTURBATION = True
     PERT_TRANSLATION_MM = 5.0
     PERT_ROTATION_DEG = 10.0
     PERT_SEED = 123
@@ -546,7 +546,7 @@ if __name__ == "__main__":
 
 
 
-    # --- Log final rotation differences between adjacent vertebra ---
+# Log final rotation differences between adjacent vertebra
 print("\nFinal inter-vertebral rotation differences (deg):")
 rotation_log = []
 

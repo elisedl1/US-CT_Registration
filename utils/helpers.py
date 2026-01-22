@@ -59,6 +59,7 @@ def compute_facet_collision_loss(pairings, transforms_list, case_names):
         direction_penalty += near_flip_penalty
 
 
+
         # LOSS COMPONENT 2: PRESERVE MEAN SPACING (SOFT)
         initial_mean = np.mean(initial_distances)
         current_mean = np.mean(current_distances)
@@ -79,8 +80,6 @@ def compute_facet_collision_loss(pairings, transforms_list, case_names):
         w_direction = 2
         
         pair_loss = (
-            # w_collision * collision_penalty +
-            # w_relative_spacing * relative_spacing_penalty +
             w_mean_spacing * mean_spacing_penalty +
             w_direction * direction_penalty
         )
