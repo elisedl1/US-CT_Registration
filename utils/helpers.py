@@ -7,6 +7,131 @@ from scipy.ndimage import gaussian_filter
 import SimpleITK as sitk
 
 
+def compute_facet_collision_loss(pairings, transforms_list, case_names):
+    # IVD collision loss tuned for your specific anatomy
+    total_loss = 0.0
+    metrics = {}
+    
+    for i in range(len(case_names) - 1):
+        vert1 = case_names[i]
+        vert2 = case_names[i + 1]
+        pair_key = (i + 1, i + 2)
+        
+        if pair_key not in pairings:
+            print(f"SKIPPED - {pair_key} not found in pairings")
+            continue
+            
+        # point pairs for this facet
+        pts1 = pairings[pair_key]['L_i'] 
+        pts2 = pairings[pair_key]['L_j']
+        initial_distances = pairings[pair_key]['d0']
+        
+        # transform points to fixed space
+        tx1 = transforms_list[i]
+        tx2 = transforms_list[i + 1]
+        pts1_transformed = np.array([tx1.TransformPoint(p.tolist()) for p in pts1])
+        pts2_transformed = np.array([tx2.TransformPoint(p.tolist()) for p in pts2])
+        
+        # compute current pairwise distances
+        current_distances = np.linalg.norm(pts1_transformed - pts2_transformed, axis=1)
+
+
+
+        # LOSS COMPONENT #1: DIRECTION VECTOR FLIPPING (collision)
+        # cosine similiarity between current vectors and v0
+        v0 = pairings[pair_key]['v0']  # precomputed initial vectors
+        v_current = pts2_transformed - pts1_transformed
+
+        # normalize
+        v0_norm = v0 / (np.linalg.norm(v0, axis=1, keepdims=True) + 1e-8)
+        v_current_norm = v_current / (np.linalg.norm(v_current, axis=1, keepdims=True) + 1e-8)
+
+        # cosine similarity
+        cos_sim = np.einsum("ij,ij->i", v0_norm, v_current_norm)
+
+        # directional penalty if vectors flip (cos_sim < 0)
+        flip_idx = cos_sim < 0
+        direction_penalty = np.sum(np.exp(-cos_sim[flip_idx]) - 1.0)
+
+        # near flip penalty
+        near_flip_idx = (cos_sim >= 0) & (cos_sim < 0.3)
+        near_flip_penalty = np.sum(np.exp(0.3 - cos_sim[near_flip_idx]) - 1.0)
+        direction_penalty += near_flip_penalty
+
+
+        # # LOSS COMPONENT 2: COLLISION AVOIDANCE (HARD)
+        # collision_threshold = 0.5  # mm - hard collision boundary
+        # violations = collision_threshold - current_distances
+        # violations = np.maximum(0, violations)
+        
+        # # exp penalty - gets severe as penetration deepens
+        # collision_penalty = np.sum(np.exp(violations) - 1.0)
+        # n_collisions = np.sum(current_distances < collision_threshold)
+        
+
+
+        # # LOSS COMPONENT 3a: PRESERVE MIN SPACING (SOFT)
+        # max_compression_frac = 0.35 # percentile
+        # min_allowed = (1.0 - max_compression_frac) * initial_distances
+
+        # spacing_violations = min_allowed - current_distances
+        # spacing_violations = np.maximum(0, spacing_violations)
+
+        # relative_spacing_penalty = np.mean(spacing_violations ** 2) # try .sum?
+
+
+
+        # LOSS COMPONENT 3b: PRESERVE MEAN SPACING (SOFT)
+        initial_mean = np.mean(initial_distances)
+        current_mean = np.mean(current_distances)
+        
+        # tolerance
+        tolerance = 1.0  # mm - allows sliding shearing
+        mean_deviation = abs(current_mean - initial_mean) - tolerance
+        
+        if mean_deviation > 0:
+            mean_spacing_penalty = mean_deviation ** 2
+        else:
+            mean_spacing_penalty = 0.0
+
+
+
+        # COMPUTE LOSS
+        # w_collision = 5   # critical - prevent collisions, mayeb try 2?
+        w_mean_spacing = 1   # moderate - maintain anatomy
+        w_direction = 1
+        # w_relative_spacing = 5
+        
+        pair_loss = (
+            # w_collision * collision_penalty +
+            # w_relative_spacing * relative_spacing_penalty +
+            w_mean_spacing * mean_spacing_penalty +
+            w_direction * direction_penalty
+        )
+        
+        total_loss += pair_loss
+
+        pair_name = f"L{pair_key[0]}-L{pair_key[1]}"
+        
+        # store metrics
+        metrics = {}
+        # metrics[pair_name] = {
+        #     'pair_idx': pair_key,   
+        #     'current_mean': float(current_mean),
+        #     'initial_mean': float(initial_mean),
+        #     'current_min': float(np.min(current_distances)),
+        #     'current_max': float(np.max(current_distances)),
+        #     'current_std': float(np.std(current_distances)),
+        #     'n_collisions': int(n_collisions),
+        #     'collision_loss': float(w_collision * collision_penalty),
+        #     # 'mean_spacing_loss': float(w_mean_spacing * mean_spacing_penalty),
+        #     'total_loss': float(pair_loss)
+        # }
+    
+    return total_loss, metrics
+
+
+
 def compute_ivd_collision_loss(pairings, transforms_list, case_names):
     # IVD collision loss tuned for your specific anatomy
     total_loss = 0.0

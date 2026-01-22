@@ -14,7 +14,7 @@ import json
 from collections import defaultdict
 
 from utils.file_parser import SlicerJsonTagParser, PyNrrdParser
-from utils.helpers import sitk_euler_to_matrix, compute_inter_vertebral_displacement_penalty, compute_ivd_collision_loss
+from utils.helpers import sitk_euler_to_matrix, compute_inter_vertebral_displacement_penalty, compute_ivd_collision_loss, compute_facet_collision_loss
 from utils.similarity import IntensitySimilarity
 from extra.centroid import compute_centroid
 from extra.CT_axis import compute_ct_axes
@@ -42,8 +42,8 @@ def compute_case_tre(flat_params):
 
 def evaluate_group_gpu(flat_params, K, centers, sampled_positions_list,
                        moving_parsers, fixed_parser,
-                       case_centroids, orig_dists, case_axes, pairings, case_names,
-                       device='cuda', profile=False):
+                       case_centroids, orig_dists, case_axes, pairings, facet_pairings, 
+                       case_names, device='cuda', profile=False):
 
 
     total_sim = 0.0
@@ -107,9 +107,13 @@ def evaluate_group_gpu(flat_params, K, centers, sampled_positions_list,
 
 
     # IVD POINT PAIR PENALTY
-    lambda_ivd = 0.001
+    lambda_ivd = 0.01
     ivd_loss, ivd_metrics = compute_ivd_collision_loss(pairings, transforms_list, case_names)
     
+
+    # FACET POINT PAIR PENALTY
+    lambda_facet = 0.01
+    facet_loss, facet_metrics = compute_facet_collision_loss(facet_pairings, transforms_list, case_names)
 
 
     # TOTAL LOSS
@@ -117,7 +121,8 @@ def evaluate_group_gpu(flat_params, K, centers, sampled_positions_list,
     total_loss = (
         sim_weight * -float(mean_sim) + 
         (lambda_axes * axes_penalty) +
-        (lambda_ivd * ivd_loss)
+        (lambda_ivd * ivd_loss) +
+        (lambda_facet * facet_loss)
     )
 
 
@@ -126,6 +131,7 @@ def evaluate_group_gpu(flat_params, K, centers, sampled_positions_list,
         float(mean_sim * (sim_weight)),
         float(axes_penalty * lambda_axes),
         float(ivd_loss * lambda_ivd),
+        float(facet_loss * lambda_facet),
         ivd_metrics
     )
 
@@ -143,28 +149,30 @@ if __name__ == "__main__":
     cases_dir = '/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans/intra1/Cases'
     output_dir = '/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans/intra1/output_python_cma_group_allcases'
 
-    USE_GLOBAL_RANDOM_PERTURBATION = True
+    USE_GLOBAL_RANDOM_PERTURBATION = False
     PERT_TRANSLATION_MM = 5.0
     PERT_ROTATION_DEG = 10.0
     PERT_SEED = 123
 
 
 
-
-    os.makedirs(output_dir, exist_ok=True)
+    
 
     # gather case folders (assumes L1..L4 style)
+    os.makedirs(output_dir, exist_ok=True)
     case_names = sorted([
         name for name in os.listdir(cases_dir)
         if os.path.isdir(os.path.join(cases_dir, name)) and name.startswith('L')
     ])
 
     # ----------
-    print("Computing nearest points for adjacent vertebra...")
+    print("Computing nearest IVD points for adjacent vertebra...")
 
+    suffix_ivd = "_body.vtk"
     try:
         pairings, meshes = compute_adjacent_vertebra_pairings(
         mesh_dir,
+        suffix_ivd,
         n_sample=30000,
         n_pairs=100,# change number of pairs between each vertebra
         max_dist=7.0,
@@ -179,12 +187,37 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"Error computing pairings: {e}")
 
+    # ----------
+    print("Computing nearest Facet Joint points for adjacent vertebra...")
+
+    suffix_facet = "_upper.vtk"
+    try:
+        facet_pairings, facet_meshes = compute_adjacent_vertebra_pairings(
+        mesh_dir,
+        suffix_facet,
+        n_sample=30000,
+        n_pairs=50,# change number of pairs between each vertebra
+        max_dist=4.0,
+        seed=42
+        )
+        
+        # (pairings contain numpy arrays, not mesh references)
+        for mesh in facet_meshes.values():
+            mesh.clear_data()
+        facet_meshes.clear()
+        del facet_meshes
+    except Exception as e:
+        print(f"Error computing facet pairings: {e}")
 
 
-    # convert to np
+
+    # convert to np for ivd and facet
     for k in pairings:
         pairings[k]['L_i'] = np.asarray(pairings[k]['L_i'])
         pairings[k]['L_j'] = np.asarray(pairings[k]['L_j'])
+    for k in facet_pairings:
+        facet_pairings[k]['L_i'] = np.asarray(facet_pairings[k]['L_i'])
+        facet_pairings[k]['L_j'] = np.asarray(facet_pairings[k]['L_j'])
 
 
 
@@ -344,6 +377,7 @@ if __name__ == "__main__":
         orig_dists=orig_dists,
         case_axes=case_axes,
         pairings=pairings,
+        facet_pairings = facet_pairings,
         case_names=case_names,
         device='cuda',
         profile=False
@@ -379,6 +413,7 @@ if __name__ == "__main__":
     mean_sim_history = []
     axes_penalty_history = []
     ivd_loss_history = [] 
+    facet_loss_history = []
     ivd_log = []
 
     # CMA loop
@@ -415,12 +450,13 @@ if __name__ == "__main__":
             
         for sol in solutions:
 
-            val, mean_sim, axes_pen, ivd_loss, ivd_metrics = partial_eval(sol)
+            val, mean_sim, axes_pen, ivd_loss, facet_loss, ivd_metrics = partial_eval(sol)
                 
             values.append(val)
             mean_sim_history.append(mean_sim)
             axes_penalty_history.append(axes_pen)
             ivd_loss_history.append(ivd_loss)
+            facet_loss_history.append(facet_loss)
             loss_history.append(val)
             
             ivd_log.append({
@@ -480,16 +516,17 @@ if __name__ == "__main__":
     mean_sim_arr = -1 * np.array(mean_sim_history)
     axes_penalty_arr = np.array(axes_penalty_history)
     ivd_loss_arr = np.array(ivd_loss_history) 
+    facet_loss_arr = np.array(facet_loss_history)
     loss_arr = np.array(loss_history)
 
 
     # LOSS PLOTTING
     plt.figure(figsize=(10, 6))
-    plt.plot(mean_sim_arr, 'o', label='Mean Similarity', linestyle='None')
-    plt.plot(axes_penalty_arr, 's', label='Axes Penalty', linestyle='None')
-    plt.plot(ivd_loss_arr, '^', label='IVD Spacing Loss', linestyle='None')
-
-    plt.plot(loss_arr, '.', label='Total Loss ', linestyle='None')
+    plt.plot(np.where(mean_sim_arr != 0)[0], mean_sim_arr[mean_sim_arr != 0], 'o', label='Mean Similarity', linestyle='None')
+    plt.plot(np.where(axes_penalty_arr != 0)[0], axes_penalty_arr[axes_penalty_arr != 0], 's', label='Axes Penalty', linestyle='None')
+    plt.plot(np.where(ivd_loss_arr != 0)[0], ivd_loss_arr[ivd_loss_arr != 0], '^', label='IVD Spacing Loss', linestyle='None')
+    plt.plot(np.where(facet_loss_arr != 0)[0], facet_loss_arr[facet_loss_arr != 0], 'v', label='Facet Loss', linestyle='None')
+    plt.plot(np.where(loss_arr != 0)[0], loss_arr[loss_arr != 0], '.', label='Total Loss', linestyle='None')
 
     plt.xlabel('CMA Evaluation Step')
     plt.ylabel('Value')
@@ -497,7 +534,7 @@ if __name__ == "__main__":
     plt.legend()
     plt.grid(True)
     plt.tight_layout()
-    plt.savefig(("optimization_metrics.png"), dpi=150)
+    plt.savefig("optimization_metrics.png", dpi=150)
     plt.close()
 
     print(f"Saved optimization_metrics.png in {output_dir}")
