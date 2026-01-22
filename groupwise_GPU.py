@@ -84,7 +84,6 @@ def evaluate_group_gpu(flat_params, K, centers, sampled_positions_list,
         total_sim += sim
         
         # centroid transform
-        
         ct_centroid = torch.tensor(case_centroids[k], device=device, dtype=torch.float32)
         moved_centroid = torch.tensor(tx_inv.TransformPoint(ct_centroid.cpu().numpy().tolist()), device=device)
         moved_centroids.append(moved_centroid.cpu().numpy())
@@ -93,13 +92,16 @@ def evaluate_group_gpu(flat_params, K, centers, sampled_positions_list,
 
 
     # INTER-VERTEBRAL DISPLACEMENT PENALTY
-    lambda_axes = 0.01
-    axes_margins = { # mm values
+    lambda_axes = 0.1
+    axes_margins = { # mm, degree values
         'LM': 2.0,
         'AP': 2.0,
         'SI': 5.0,
-        'SI_rot' : np.deg2rad(10)
+        'LM_rot' : np.deg2rad(15), # bending (forward, backwards)
+        'AP_rot' : np.deg2rad(6), # side bending
+        'SI_rot' : np.deg2rad(2) # twisting
     }
+
     axes_penalty = compute_inter_vertebral_displacement_penalty(
         moved_centroids, case_centroids, case_axes, transforms_list, axes_margins
     )
@@ -107,12 +109,12 @@ def evaluate_group_gpu(flat_params, K, centers, sampled_positions_list,
 
 
     # IVD POINT PAIR PENALTY
-    lambda_ivd = 0.01
+    lambda_ivd = 0.000
     ivd_loss, ivd_metrics = compute_ivd_collision_loss(pairings, transforms_list, case_names)
     
 
     # FACET POINT PAIR PENALTY
-    lambda_facet = 0.01
+    lambda_facet = 0.0 # was 0.001
     facet_loss, facet_metrics = compute_facet_collision_loss(facet_pairings, transforms_list, case_names)
 
 
@@ -538,3 +540,51 @@ if __name__ == "__main__":
     plt.close()
 
     print(f"Saved optimization_metrics.png in {output_dir}")
+
+
+
+
+
+
+    # --- Log final rotation differences between adjacent vertebra ---
+print("\nFinal inter-vertebral rotation differences (deg):")
+rotation_log = []
+
+for k in range(len(final_transforms) - 1):
+    tx_k = final_transforms[k].GetInverse()  # get original transform
+    tx_k1 = final_transforms[k + 1].GetInverse()
+
+    rot_k = np.array(final_transforms[k].GetMatrix()).reshape(3, 3)
+    rot_k1 = np.array(final_transforms[k + 1].GetMatrix()).reshape(3, 3)
+
+    LM_k, AP_k, SI_k = case_axes[k]
+    LM_k1, AP_k1, SI_k1 = case_axes[k + 1]
+
+    # rotate axes
+    LM_k_rot = rot_k @ LM_k
+    AP_k_rot = rot_k @ AP_k
+    SI_k_rot = rot_k @ SI_k
+
+    LM_k1_rot = rot_k1 @ LM_k1
+    AP_k1_rot = rot_k1 @ AP_k1
+    SI_k1_rot = rot_k1 @ SI_k1
+
+    # axis-angle differences
+    def axis_angle(v1, v2):
+        v1 = v1 / np.linalg.norm(v1)
+        v2 = v2 / np.linalg.norm(v2)
+        cos_theta = np.clip(np.dot(v1, v2), -1.0, 1.0)
+        return np.arccos(cos_theta)
+
+    SI_rot_deg = np.rad2deg(axis_angle(SI_k_rot, SI_k1_rot))  # rotation about SI
+    LM_rot_deg = np.rad2deg(axis_angle(LM_k_rot, LM_k1_rot))  # rotation about LM
+    AP_rot_deg = np.rad2deg(axis_angle(AP_k_rot, AP_k1_rot))  # rotation about AP
+
+    rotation_log.append({
+        "pair": f"{case_names[k]}-{case_names[k+1]}",
+        "SI_rot_deg": SI_rot_deg,
+        "LM_rot_deg": LM_rot_deg,
+        "AP_rot_deg": AP_rot_deg
+    })
+
+    print(f"{case_names[k]}-{case_names[k+1]} -> SI: {SI_rot_deg:.2f}, LM: {LM_rot_deg:.2f}, AP: {AP_rot_deg:.2f}")
