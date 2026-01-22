@@ -59,29 +59,7 @@ def compute_facet_collision_loss(pairings, transforms_list, case_names):
         direction_penalty += near_flip_penalty
 
 
-        # # LOSS COMPONENT 2: COLLISION AVOIDANCE (HARD)
-        # collision_threshold = 0.5  # mm - hard collision boundary
-        # violations = collision_threshold - current_distances
-        # violations = np.maximum(0, violations)
-        
-        # # exp penalty - gets severe as penetration deepens
-        # collision_penalty = np.sum(np.exp(violations) - 1.0)
-        # n_collisions = np.sum(current_distances < collision_threshold)
-        
-
-
-        # # LOSS COMPONENT 3a: PRESERVE MIN SPACING (SOFT)
-        # max_compression_frac = 0.35 # percentile
-        # min_allowed = (1.0 - max_compression_frac) * initial_distances
-
-        # spacing_violations = min_allowed - current_distances
-        # spacing_violations = np.maximum(0, spacing_violations)
-
-        # relative_spacing_penalty = np.mean(spacing_violations ** 2) # try .sum?
-
-
-
-        # LOSS COMPONENT 3b: PRESERVE MEAN SPACING (SOFT)
+        # LOSS COMPONENT 2: PRESERVE MEAN SPACING (SOFT)
         initial_mean = np.mean(initial_distances)
         current_mean = np.mean(current_distances)
         
@@ -97,10 +75,8 @@ def compute_facet_collision_loss(pairings, transforms_list, case_names):
 
 
         # COMPUTE LOSS
-        # w_collision = 5   # critical - prevent collisions, mayeb try 2?
         w_mean_spacing = 1   # moderate - maintain anatomy
-        w_direction = 1
-        # w_relative_spacing = 5
+        w_direction = 2
         
         pair_loss = (
             # w_collision * collision_penalty +
@@ -156,10 +132,9 @@ def compute_ivd_collision_loss(pairings, transforms_list, case_names):
         tx2 = transforms_list[i + 1]
         pts1_transformed = np.array([tx1.TransformPoint(p.tolist()) for p in pts1])
         pts2_transformed = np.array([tx2.TransformPoint(p.tolist()) for p in pts2])
-        
-
         # compute current pairwise distances
         current_distances = np.linalg.norm(pts1_transformed - pts2_transformed, axis=1)
+
 
         # LOSS COMPONENT #1: DIRECTION VECTOR FLIPPING (collision)
         # cosine similiarity between current vectors and v0
@@ -179,25 +154,25 @@ def compute_ivd_collision_loss(pairings, transforms_list, case_names):
 
 
 
-        # LOSS COMPONENT 2: COLLISION AVOIDANCE (HARD)
-        collision_threshold = 1.0  # mm - hard collision boundary
-        violations = collision_threshold - current_distances
-        violations = np.maximum(0, violations)
+        # # LOSS COMPONENT 2: COLLISION AVOIDANCE (HARD)
+        # collision_threshold = 1.0  # mm - hard collision boundary
+        # violations = collision_threshold - current_distances
+        # violations = np.maximum(0, violations)
         
-        # exp penalty - gets severe as penetration deepens
-        collision_penalty = np.sum(np.exp(violations) - 1.0)
-        n_collisions = np.sum(current_distances < collision_threshold)
+        # # exp penalty - gets severe as penetration deepens
+        # collision_penalty = np.sum(np.exp(violations) - 1.0)
+        # n_collisions = np.sum(current_distances < collision_threshold)
         
 
 
-        # LOSS COMPONENT 3a: PRESERVE MIN SPACING (SOFT)
-        max_compression_frac = 0.35 # percentile
-        min_allowed = (1.0 - max_compression_frac) * initial_distances
+        # # LOSS COMPONENT 3a: PRESERVE MIN SPACING (SOFT)
+        # max_compression_frac = 0.35 # percentile
+        # min_allowed = (1.0 - max_compression_frac) * initial_distances
 
-        spacing_violations = min_allowed - current_distances
-        spacing_violations = np.maximum(0, spacing_violations)
+        # spacing_violations = min_allowed - current_distances
+        # spacing_violations = np.maximum(0, spacing_violations)
 
-        relative_spacing_penalty = np.mean(spacing_violations ** 2) # try .sum?
+        # relative_spacing_penalty = np.mean(spacing_violations ** 2) # try .sum?
 
 
 
@@ -217,14 +192,14 @@ def compute_ivd_collision_loss(pairings, transforms_list, case_names):
 
 
         # COMPUTE LOSS
-        w_collision = 1.0   # critical - prevent collisions, mayeb try 2?
+        # w_collision = 1.0   # critical - prevent collisions, mayeb try 2?
         w_mean_spacing = 0.5   # moderate - maintain anatomy
         w_direction = 1.0
-        w_relative_spacing = 1.0
+        # w_relative_spacing = 1.0
         
         pair_loss = (
-            w_collision * collision_penalty +
-            w_relative_spacing * relative_spacing_penalty +
+            # w_collision * collision_penalty +
+            # w_relative_spacing * relative_spacing_penalty +
             w_mean_spacing * mean_spacing_penalty +
             w_direction * direction_penalty
         )
@@ -234,18 +209,18 @@ def compute_ivd_collision_loss(pairings, transforms_list, case_names):
         pair_name = f"L{pair_key[0]}-L{pair_key[1]}"
         
         # store metrics
-        metrics[pair_name] = {
-            'pair_idx': pair_key,   
-            'current_mean': float(current_mean),
-            'initial_mean': float(initial_mean),
-            'current_min': float(np.min(current_distances)),
-            'current_max': float(np.max(current_distances)),
-            'current_std': float(np.std(current_distances)),
-            'n_collisions': int(n_collisions),
-            'collision_loss': float(w_collision * collision_penalty),
-            'mean_spacing_loss': float(w_mean_spacing * mean_spacing_penalty),
-            'total_loss': float(pair_loss)
-        }
+        # metrics[pair_name] = {
+        #     'pair_idx': pair_key,   
+        #     'current_mean': float(current_mean),
+        #     'initial_mean': float(initial_mean),
+        #     'current_min': float(np.min(current_distances)),
+        #     'current_max': float(np.max(current_distances)),
+        #     'current_std': float(np.std(current_distances)),
+        #     'n_collisions': int(n_collisions),
+        #     'collision_loss': float(w_collision * collision_penalty),
+        #     'mean_spacing_loss': float(w_mean_spacing * mean_spacing_penalty),
+        #     'total_loss': float(pair_loss)
+        # }
     
     return total_loss, metrics
 

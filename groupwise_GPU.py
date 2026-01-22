@@ -92,7 +92,7 @@ def evaluate_group_gpu(flat_params, K, centers, sampled_positions_list,
 
 
     # INTER-VERTEBRAL DISPLACEMENT PENALTY
-    lambda_axes = 0.1
+    lambda_axes = 0.01 # 0.01 usually
     axes_margins = { # mm, degree values
         'LM': 2.0,
         'AP': 2.0,
@@ -109,12 +109,12 @@ def evaluate_group_gpu(flat_params, K, centers, sampled_positions_list,
 
 
     # IVD POINT PAIR PENALTY
-    lambda_ivd = 0.000
+    lambda_ivd = 0.001 # 0.001
     ivd_loss, ivd_metrics = compute_ivd_collision_loss(pairings, transforms_list, case_names)
     
 
     # FACET POINT PAIR PENALTY
-    lambda_facet = 0.0 # was 0.001
+    lambda_facet = 0.000
     facet_loss, facet_metrics = compute_facet_collision_loss(facet_pairings, transforms_list, case_names)
 
 
