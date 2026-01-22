@@ -5,7 +5,7 @@ import SimpleITK as sitk
 from scipy.ndimage import distance_transform_edt
 
 # USER OPTIONS
-use_folder = False   # set False to process only two files
+use_folder = True   # set False to process only two files
 
 folder = "/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/CT_segmentations/intra1_seg/"
 

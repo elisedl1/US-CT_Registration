@@ -75,7 +75,7 @@ def simulate_us_artifacts(
 
 if __name__ == "__main__":
     input_nrrd  = "/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/US_Vertebra/L2/US_weight_L2.nrrd"
-    output_nrrd = "/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/US_Vertebra/L2/US_weight_L2_dropoutref.nrrd"
+    output_nrrd = "/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/US_Vertebra/L2/US_weight_L2_dropoutref_cal.nrrd"
     print("Reading:", input_nrrd)
     img = sitk.ReadImage(input_nrrd)
     out = simulate_us_artifacts(

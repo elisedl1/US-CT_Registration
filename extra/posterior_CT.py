@@ -4,6 +4,24 @@ import numpy as np
 from CT_axis import compute_ct_axes
 from centroid import compute_centroid
 
+def ensure_binary_scalar(mask: sitk.Image) -> sitk.Image:
+
+    arr = sitk.GetArrayFromImage(mask)
+
+    labels = np.unique(arr)
+    nonzero_labels = labels[labels != 0]
+
+    if len(nonzero_labels) > 1:
+        print(f"Found multiple labels {nonzero_labels}, collapsing to binary mask.")
+        arr = (arr > 0).astype(np.float32)
+
+
+    out = sitk.GetImageFromArray(arr)
+    out.CopyInformation(mask)
+    out = sitk.Cast(out, sitk.sitkFloat32)
+
+    return out
+
 def resample_to_reference(image, reference_image):
     """
     Resample an image to match the size, spacing, and orientation of a reference image.
@@ -24,10 +42,13 @@ def extract_posterior_surface(mask_file, ct_file_for_axes, reference_file=None):
     """
 
     mask = sitk.ReadImage(mask_file)
+    mask = ensure_binary_scalar(mask)
     
     if reference_file is not None:
         print(f"Resampling mask to match reference: {reference_file}")
         reference = sitk.ReadImage(reference_file)
+        reference = ensure_binary_scalar(reference)
+
         mask = resample_to_reference(mask, reference)
         print(f"Resampled to size: {mask.GetSize()}")
     
@@ -147,10 +168,9 @@ def plot_comparison(mask_file, surface_image, reference_file=None, slice_idx=Non
 
 if __name__ == "__main__":
     # File paths
-    mask_file = "/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/Known_Trans/intra1/Cases/L4/CT_L4.nrrd"
+    mask_file = "/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/CT_segmentations/original/CT_seg_combined.nrrd"
     ct_file_for_axes = mask_file  # using same file to get axis directions
-    reference_file = "/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/open/L4/CT_L4_bt.nrrd"
-    
+    reference_file = "/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/bt_stitch.nrrd"
     print("Extracting posterior surface...")
     surface = extract_posterior_surface(mask_file, ct_file_for_axes, reference_file)
     

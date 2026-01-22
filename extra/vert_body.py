@@ -38,5 +38,7 @@ if __name__ == "__main__":
         "/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/CT_segmentations/original/CT_L4.nrrd",
     ]
 
+
     cropped = get_body(CT_files)
-    print("Cropped", len(cropped), "images")
+    output_dir = "/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/CT_segmentations/cropped/intra1"
+    print("Cropped and saved", len(cropped), "images")

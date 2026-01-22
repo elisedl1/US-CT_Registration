@@ -108,7 +108,7 @@ def compute_adjacent_vertebra_pairings(mesh_dir, n_sample=30000, n_pairs=500,
                 mesh.clear_data()
             mesh = None
 
-    return pairings, {}
+    return pairings, meshes
 
 def visualize_pairings(mesh_i, mesh_j, pairs_i, pairs_j, subsample=200):
 
@@ -130,25 +130,29 @@ def visualize_pairings(mesh_i, mesh_j, pairs_i, pairs_j, subsample=200):
     plotter.close()
     del plotter
 
-# if __name__ == "__main__":
+if __name__ == "__main__":
 
-#     mesh_dir = "/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/CT_segmentations/cropped/intra1"
+    # for IVD
+    # mesh_dir = "/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/CT_segmentations/cropped/intra1"
 
-#     pairings, meshes = compute_adjacent_vertebra_pairings(
-#         mesh_dir,
-#         n_sample=30000,
-#         n_pairs=500,
-#         max_dist=8.0,
-#         seed=42,
-#         outlier_k=3.5  # MAD threshold
-#     )
+    # for facet joints
+    mesh_dir = "/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/CT_segmentations/intra1_seg/vtk"
 
-#     for (lvl_i, lvl_j), data in pairings.items():
-#         print(f"Visualizing L{lvl_i}-L{lvl_j} ({len(data['L_i'])} pairs after filtering)")
-#         visualize_pairings(
-#             meshes[lvl_i],
-#             meshes[lvl_j],
-#             data["L_i"],
-#             data["L_j"],
-#             subsample=150
-#         )
+    pairings, meshes = compute_adjacent_vertebra_pairings(
+        mesh_dir,
+        n_sample=30000,
+        n_pairs=500,
+        max_dist=8.0,
+        seed=42,
+        outlier_k=3.5  # MAD threshold
+    )
+
+    for (lvl_i, lvl_j), data in pairings.items():
+        print(f"Visualizing L{lvl_i}-L{lvl_j} ({len(data['L_i'])} pairs after filtering)")
+        visualize_pairings(
+            meshes[lvl_i],
+            meshes[lvl_j],
+            data["L_i"],
+            data["L_j"],
+            subsample=50
+        )
