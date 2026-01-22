@@ -113,7 +113,7 @@ def evaluate_group_gpu(flat_params, K, centers, sampled_positions_list,
 
 
     # TOTAL LOSS
-    sim_weight = 2.0
+    sim_weight = 1.0
     total_loss = (
         sim_weight * -float(mean_sim) + 
         (lambda_axes * axes_penalty) +
@@ -143,10 +143,14 @@ if __name__ == "__main__":
     cases_dir = '/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans/intra1/Cases'
     output_dir = '/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans/intra1/output_python_cma_group_allcases'
 
-    # local
-    # mesh_dir = '/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/CT_segmentations/cropped'
-    # cases_dir = '/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/Known_Trans/intra1/Cases'
-    # output_dir = '/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/Known_Trans/intra1/output_python_cma_group_allcases'
+    USE_GLOBAL_RANDOM_PERTURBATION = True
+    PERT_TRANSLATION_MM = 5.0
+    PERT_ROTATION_DEG = 10.0
+    PERT_SEED = 123
+
+
+
+
     os.makedirs(output_dir, exist_ok=True)
 
     # gather case folders (assumes L1..L4 style)
@@ -154,10 +158,6 @@ if __name__ == "__main__":
         name for name in os.listdir(cases_dir)
         if os.path.isdir(os.path.join(cases_dir, name)) and name.startswith('L')
     ])
-
-
-
-
 
     # ----------
     print("Computing nearest points for adjacent vertebra...")
@@ -192,9 +192,10 @@ if __name__ == "__main__":
     print("Group-wise registration for cases:", case_names)
 
     # read single US volume once
-    # fixed_file = os.path.join(cases_dir, 'US_complete.nrrd')
-    fixed_file = os.path.join(cases_dir, 'US_complete_cal.nrrd')
-    # fixed_file = os.path.join(cases_dir, 'US_full_L3_dropoutref.nrrd')
+    # fixed_file = os.path.join(cases_dir, 'US_complete.nrrd') # old
+    # fixed_file = os.path.join(cases_dir, 'US_complete_cal.nrrd') # NEW
+    # fixed_file = os.path.join(cases_dir, 'US_full_L3_dropoutref.nrrd') # old
+    fixed_file = os.path.join(cases_dir, 'US_full_L3_dropoutref_cal.nrrd') # NEW
     # fixed_file = os.path.join(cases_dir, 'US_full_L2_L3_dropoutref.nrrd')
     fixed_parser = PyNrrdParser(fixed_file) 
 
@@ -302,6 +303,34 @@ if __name__ == "__main__":
     print("Preparing tensors on GPU...")
     sampled_positions_list_gpu = [torch.from_numpy(pos.astype(np.float32)).cuda() for pos in sampled_positions_list]
 
+
+
+    # random perturbation
+    # rng = np.random.default_rng(PERT_SEED)
+    rng = np.random.default_rng()
+
+
+    if USE_GLOBAL_RANDOM_PERTURBATION:
+        # rotations (radians)
+        rot = np.deg2rad(
+            rng.uniform(-PERT_ROTATION_DEG, PERT_ROTATION_DEG, size=3)
+        )
+
+        # translations (mm)
+        trans = rng.uniform(
+            -PERT_TRANSLATION_MM, PERT_TRANSLATION_MM, size=3
+        )
+
+        # SITK Euler3D: (rx, ry, rz, tx, ty, tz)
+        global_perturbation = np.concatenate([rot, trans])
+    else:
+        global_perturbation = np.zeros(6)
+
+    if USE_GLOBAL_RANDOM_PERTURBATION:
+        print("\nApplied GLOBAL random CT perturbation:")
+        print(f"  Rotation (deg): {np.rad2deg(global_perturbation[:3])}")
+        print(f"  Translation (mm): {global_perturbation[3:]}")
+
     
     # create partial evaluate function 
     partial_eval = partial(
@@ -332,7 +361,8 @@ if __name__ == "__main__":
 
 
     # CMA initialization
-    x0 = np.zeros(6 * K) 
+    # x0 = np.zeros(6 * K) 
+    x0 = np.tile(global_perturbation, K)
     sigma0 = 0.5
     base_stds = [0.01, 0.01, 0.01, 1.0, 1.0, 1.0]
     cma_stds = base_stds * K
@@ -343,6 +373,13 @@ if __name__ == "__main__":
     upper_per = [0.4, 0.4, 0.4, 5, 5, 5]
     lower = lower_per * K
     upper = upper_per * K
+
+    # track metrics
+    loss_history = []
+    mean_sim_history = []
+    axes_penalty_history = []
+    ivd_loss_history = [] 
+    ivd_log = []
 
     # CMA loop
     es = cma.CMAEvolutionStrategy(
@@ -358,16 +395,19 @@ if __name__ == "__main__":
         }
     )
 
+
+    if USE_GLOBAL_RANDOM_PERTURBATION:
+        print("\nTRE AFTER GLOBAL PERTURBATION (before CMA)")
+        tre_pert = compute_case_tre(x0)
+        for case, tre in tre_pert.items():
+            if tre is not None:
+                print(f"{case}: TRE_perturbed = {tre:.4f} mm")
+
+
+
     # RUN CMA ON GPU
     start_time = time.time()
     it = 0
-
-    # track metrics
-    loss_history = []
-    mean_sim_history = []
-    axes_penalty_history = []
-    ivd_loss_history = [] 
-    ivd_log = []
 
     while not es.stop():
         solutions = es.ask()
