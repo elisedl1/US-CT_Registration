@@ -108,7 +108,7 @@ def compute_adjacent_vertebra_pairings(mesh_dir, suffix, n_sample=30000, n_pairs
                 mesh.clear_data()
             mesh = None
 
-    return pairings, meshes
+    return pairings, {}
 
 def visualize_pairings(mesh_i, mesh_j, pairs_i, pairs_j, subsample=200):
 
@@ -134,7 +134,7 @@ if __name__ == "__main__":
 
     # for IVD
     mesh_dir = "/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/CT_segmentations/cropped/intra1"
-    suffix = "_body.vtk"
+    # suffix = "_body.vtk"
     suffix = "_upper.vtk"
 
     pairings, meshes = compute_adjacent_vertebra_pairings(
