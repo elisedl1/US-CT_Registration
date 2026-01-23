@@ -7,6 +7,106 @@ from scipy.ndimage import gaussian_filter
 import SimpleITK as sitk
 
 
+def compute_facet_collision_loss(pairings, transforms_list, case_names):
+    # IVD collision loss tuned for your specific anatomy
+    total_loss = 0.0
+    metrics = {}
+    
+    for i in range(len(case_names) - 1):
+        vert1 = case_names[i]
+        vert2 = case_names[i + 1]
+        pair_key = (i + 1, i + 2)
+        
+        if pair_key not in pairings:
+            print(f"SKIPPED - {pair_key} not found in pairings")
+            continue
+            
+        # point pairs for this facet
+        pts1 = pairings[pair_key]['L_i'] 
+        pts2 = pairings[pair_key]['L_j']
+        initial_distances = pairings[pair_key]['d0']
+        
+        # transform points to fixed space
+        tx1 = transforms_list[i]
+        tx2 = transforms_list[i + 1]
+        pts1_transformed = np.array([tx1.TransformPoint(p.tolist()) for p in pts1])
+        pts2_transformed = np.array([tx2.TransformPoint(p.tolist()) for p in pts2])
+        
+        # compute current pairwise distances
+        current_distances = np.linalg.norm(pts1_transformed - pts2_transformed, axis=1)
+
+
+
+        # LOSS COMPONENT #1: DIRECTION VECTOR FLIPPING (collision)
+        # cosine similiarity between current vectors and v0
+        v0 = pairings[pair_key]['v0']  # precomputed initial vectors
+        v_current = pts2_transformed - pts1_transformed
+
+        # normalize
+        v0_norm = v0 / (np.linalg.norm(v0, axis=1, keepdims=True) + 1e-8)
+        v_current_norm = v_current / (np.linalg.norm(v_current, axis=1, keepdims=True) + 1e-8)
+
+        # cosine similarity
+        cos_sim = np.einsum("ij,ij->i", v0_norm, v_current_norm)
+
+        # directional penalty if vectors flip (cos_sim < 0)
+        flip_idx = cos_sim < 0
+        direction_penalty = np.sum(np.exp(-cos_sim[flip_idx]) - 1.0)
+
+        # near flip penalty
+        near_flip_idx = (cos_sim >= 0) & (cos_sim < 0.3)
+        near_flip_penalty = np.sum(np.exp(0.3 - cos_sim[near_flip_idx]) - 1.0)
+        direction_penalty += near_flip_penalty
+
+
+
+        # LOSS COMPONENT 2: PRESERVE MEAN SPACING (SOFT)
+        initial_mean = np.mean(initial_distances)
+        current_mean = np.mean(current_distances)
+        
+        # tolerance
+        tolerance = 1.0  # mm - allows sliding shearing
+        mean_deviation = abs(current_mean - initial_mean) - tolerance
+        
+        if mean_deviation > 0:
+            mean_spacing_penalty = mean_deviation ** 2
+        else:
+            mean_spacing_penalty = 0.0
+
+
+
+        # COMPUTE LOSS
+        w_mean_spacing = 1   # moderate - maintain anatomy
+        w_direction = 2
+        
+        pair_loss = (
+            w_mean_spacing * mean_spacing_penalty +
+            w_direction * direction_penalty
+        )
+        
+        total_loss += pair_loss
+
+        pair_name = f"L{pair_key[0]}-L{pair_key[1]}"
+        
+        # store metrics
+        metrics = {}
+        # metrics[pair_name] = {
+        #     'pair_idx': pair_key,   
+        #     'current_mean': float(current_mean),
+        #     'initial_mean': float(initial_mean),
+        #     'current_min': float(np.min(current_distances)),
+        #     'current_max': float(np.max(current_distances)),
+        #     'current_std': float(np.std(current_distances)),
+        #     'n_collisions': int(n_collisions),
+        #     'collision_loss': float(w_collision * collision_penalty),
+        #     # 'mean_spacing_loss': float(w_mean_spacing * mean_spacing_penalty),
+        #     'total_loss': float(pair_loss)
+        # }
+    
+    return total_loss, metrics
+
+
+
 def compute_ivd_collision_loss(pairings, transforms_list, case_names):
     # IVD collision loss tuned for your specific anatomy
     total_loss = 0.0
@@ -31,10 +131,9 @@ def compute_ivd_collision_loss(pairings, transforms_list, case_names):
         tx2 = transforms_list[i + 1]
         pts1_transformed = np.array([tx1.TransformPoint(p.tolist()) for p in pts1])
         pts2_transformed = np.array([tx2.TransformPoint(p.tolist()) for p in pts2])
-        
-
         # compute current pairwise distances
         current_distances = np.linalg.norm(pts1_transformed - pts2_transformed, axis=1)
+
 
         # LOSS COMPONENT #1: DIRECTION VECTOR FLIPPING (collision)
         # cosine similiarity between current vectors and v0
@@ -54,25 +153,25 @@ def compute_ivd_collision_loss(pairings, transforms_list, case_names):
 
 
 
-        # LOSS COMPONENT 2: COLLISION AVOIDANCE (HARD)
-        collision_threshold = 1.0  # mm - hard collision boundary
-        violations = collision_threshold - current_distances
-        violations = np.maximum(0, violations)
+        # # LOSS COMPONENT 2: COLLISION AVOIDANCE (HARD)
+        # collision_threshold = 1.0  # mm - hard collision boundary
+        # violations = collision_threshold - current_distances
+        # violations = np.maximum(0, violations)
         
-        # exp penalty - gets severe as penetration deepens
-        collision_penalty = np.sum(np.exp(violations) - 1.0)
-        n_collisions = np.sum(current_distances < collision_threshold)
+        # # exp penalty - gets severe as penetration deepens
+        # collision_penalty = np.sum(np.exp(violations) - 1.0)
+        # n_collisions = np.sum(current_distances < collision_threshold)
         
 
 
-        # LOSS COMPONENT 3a: PRESERVE MIN SPACING (SOFT)
-        max_compression_frac = 0.35 # percentile
-        min_allowed = (1.0 - max_compression_frac) * initial_distances
+        # # LOSS COMPONENT 3a: PRESERVE MIN SPACING (SOFT)
+        # max_compression_frac = 0.35 # percentile
+        # min_allowed = (1.0 - max_compression_frac) * initial_distances
 
-        spacing_violations = min_allowed - current_distances
-        spacing_violations = np.maximum(0, spacing_violations)
+        # spacing_violations = min_allowed - current_distances
+        # spacing_violations = np.maximum(0, spacing_violations)
 
-        relative_spacing_penalty = np.mean(spacing_violations ** 2) # try .sum?
+        # relative_spacing_penalty = np.mean(spacing_violations ** 2) # try .sum?
 
 
 
@@ -92,14 +191,14 @@ def compute_ivd_collision_loss(pairings, transforms_list, case_names):
 
 
         # COMPUTE LOSS
-        w_collision = 1.0   # critical - prevent collisions, mayeb try 2?
+        # w_collision = 1.0   # critical - prevent collisions, mayeb try 2?
         w_mean_spacing = 0.5   # moderate - maintain anatomy
         w_direction = 1.0
-        w_relative_spacing = 1.0
+        # w_relative_spacing = 1.0
         
         pair_loss = (
-            w_collision * collision_penalty +
-            w_relative_spacing * relative_spacing_penalty +
+            # w_collision * collision_penalty +
+            # w_relative_spacing * relative_spacing_penalty +
             w_mean_spacing * mean_spacing_penalty +
             w_direction * direction_penalty
         )
@@ -109,114 +208,94 @@ def compute_ivd_collision_loss(pairings, transforms_list, case_names):
         pair_name = f"L{pair_key[0]}-L{pair_key[1]}"
         
         # store metrics
-        metrics[pair_name] = {
-            'pair_idx': pair_key,   
-            'current_mean': float(current_mean),
-            'initial_mean': float(initial_mean),
-            'current_min': float(np.min(current_distances)),
-            'current_max': float(np.max(current_distances)),
-            'current_std': float(np.std(current_distances)),
-            'n_collisions': int(n_collisions),
-            'collision_loss': float(w_collision * collision_penalty),
-            'mean_spacing_loss': float(w_mean_spacing * mean_spacing_penalty),
-            'total_loss': float(pair_loss)
-        }
+        # metrics[pair_name] = {
+        #     'pair_idx': pair_key,   
+        #     'current_mean': float(current_mean),
+        #     'initial_mean': float(initial_mean),
+        #     'current_min': float(np.min(current_distances)),
+        #     'current_max': float(np.max(current_distances)),
+        #     'current_std': float(np.std(current_distances)),
+        #     'n_collisions': int(n_collisions),
+        #     'collision_loss': float(w_collision * collision_penalty),
+        #     'mean_spacing_loss': float(w_mean_spacing * mean_spacing_penalty),
+        #     'total_loss': float(pair_loss)
+        # }
     
     return total_loss, metrics
 
 
 def compute_inter_vertebral_displacement_penalty(moved_centroids, case_centroids, case_axes, transforms_list, margins):
 
-    # constraint relative displacement between neighboring vertebrae along anatomical axes.
-    # compares each movement in its transformed anatomical frame
-
-    penalty = 0.0 # start at 0
+    penalty = 0.0
     K = len(moved_centroids)
     
     if K < 2:
         return 0.0
 
-    # compte movement in transform anatomical frame
-    LM_axis_shared = case_axes[0][0]  # same for all vertebrae
-    movements_LM = []
-    movements_AP = []
-    movements_SI = []
-    
     for k in range(K - 1):
-        
-        # rel position in TRANSFORMED space
         relative_vec = moved_centroids[k+1] - moved_centroids[k]
-        
-        # Transform the vertebra k
+
+        # get transforms from list
         tx_k = transforms_list[k]
-        rotation_k = np.array(tx_k.GetMatrix()).reshape(3, 3)
-        LM_axis_k_orig, AP_axis_k_orig, SI_axis_k_orig = case_axes[k]
-        LM_axis_k_transformed = rotation_k @ LM_axis_k_orig
-        AP_axis_k_transformed = rotation_k @ AP_axis_k_orig
-        SI_axis_k_transformed = rotation_k @ SI_axis_k_orig
-        
-        # Vertebra k+1
         tx_k1 = transforms_list[k+1]
-        rotation_k1 = np.array(tx_k1.GetMatrix()).reshape(3, 3)
-        LM_axis_k1_orig, AP_axis_k1_orig, SI_axis_k1_orig = case_axes[k+1]
-        LM_axis_k1_transformed = rotation_k1 @ LM_axis_k1_orig
-        AP_axis_k1_transformed = rotation_k1 @ AP_axis_k1_orig
-        SI_axis_k1_transformed = rotation_k1 @ SI_axis_k1_orig
+        M_k = sitk_euler_to_matrix(tx_k)
+        M_k1 = sitk_euler_to_matrix(tx_k1)
+        R_k = M_k[:3, :3]
+        R_k1 = M_k1[:3, :3]
+        LM_k_orig, AP_k_orig, SI_k_orig = case_axes[k]
+        LM_k1_orig, AP_k1_orig, SI_k1_orig = case_axes[k+1]
+
+        LM_k_rot  = R_k @ LM_k_orig
+        AP_k_rot  = R_k @ AP_k_orig
+        SI_k_rot  = R_k @ SI_k_orig
+
+        LM_k1_rot = R_k1 @ LM_k1_orig
+        AP_k1_rot = R_k1 @ AP_k1_orig
+        SI_k1_rot = R_k1 @ SI_k1_orig
+
+        # LINEAR VIOLATION
+        LM_avg = (LM_k_rot + LM_k1_rot) / 2.0
+        LM_avg /= np.linalg.norm(LM_avg)
+        AP_avg = (AP_k_rot + AP_k1_rot) / 2.0
+        AP_avg /= np.linalg.norm(AP_avg)
+        SI_avg = (SI_k_rot + SI_k1_rot) / 2.0
+        SI_avg /= np.linalg.norm(SI_avg)
+
+        LM_component = abs(np.dot(relative_vec, LM_avg))
+        AP_component = abs(np.dot(relative_vec, AP_avg))
+        SI_component = abs(np.dot(relative_vec, SI_avg))
+
+        LM_violation = max(0.0, LM_component - margins['LM'])
+        AP_violation = max(0.0, AP_component - margins['AP'])
+        original_vec = case_centroids[k+1] - case_centroids[k]
+        original_SI = abs(np.dot(original_vec, SI_avg))
+        SI_violation = max(0.0, abs(SI_component - original_SI) - margins['SI'])
+
+        # ROTATION VIOLATIONS
+        def axis_angle(v1, v2):
+            v1 = v1 / np.linalg.norm(v1)
+            v2 = v2 / np.linalg.norm(v2)
+            return np.arccos(np.clip(np.dot(v1, v2), -1.0, 1.0))
+
+        SI_rot_angle = axis_angle(LM_k_rot, LM_k1_rot)
+        LM_rot_angle = axis_angle(AP_k_rot, AP_k1_rot)
+        AP_rot_angle = axis_angle(SI_k_rot, SI_k1_rot)
+
+        SI_rot_violation = max(0.0, SI_rot_angle - margins['SI_rot'])
+        LM_rot_violation = max(0.0, LM_rot_angle - margins['LM_rot'])
+        AP_rot_violation = max(0.0, AP_rot_angle - margins['AP_rot'])
         
-        # average the transformed axes (compromise reference frame)
-        LM_axis_avg = (LM_axis_k_transformed + LM_axis_k1_transformed) / 2.0
-        LM_axis_avg = LM_axis_avg / np.linalg.norm(LM_axis_avg)
-        
-        AP_axis_avg = (AP_axis_k_transformed + AP_axis_k1_transformed) / 2.0
-        AP_axis_avg = AP_axis_avg / np.linalg.norm(AP_axis_avg)
-        
-        SI_axis_avg = (SI_axis_k_transformed + SI_axis_k1_transformed) / 2.0
-        SI_axis_avg = SI_axis_avg / np.linalg.norm(SI_axis_avg)
-
-
-        # SI TWIST PENALTY
-        # take LM axes (could also use AP)
-        LM_k = LM_axis_k_transformed
-        LM_k1 = LM_axis_k1_transformed
-
-        LM_k_proj = LM_k - np.dot(LM_k, SI_axis_avg) * SI_axis_avg
-        LM_k1_proj = LM_k1 - np.dot(LM_k1, SI_axis_avg) * SI_axis_avg
-
-        LM_k_proj /= np.linalg.norm(LM_k_proj)
-        LM_k1_proj /= np.linalg.norm(LM_k1_proj)
-
-        # project relative position onto averaged transformed axes
-        LM_component = abs(np.dot(relative_vec, LM_axis_avg))
-        AP_component = abs(np.dot(relative_vec, AP_axis_avg))
-        SI_component = abs(np.dot(relative_vec, SI_axis_avg))
-
-        # angle between projected LM axes = twist about SI
-        cos_theta = np.clip(np.dot(LM_k_proj, LM_k1_proj), -1.0, 1.0)
-        twist_angle = np.arccos(cos_theta)  
-        SI_rot_violation = max(0.0, twist_angle - margins['SI_rot'])
-        
-
-        # penalize if lateral or AP separation is too large (anatomically implausible)
-        LM_magnitude = abs(LM_component)
-        AP_magnitude = abs(AP_component)
-        
-        LM_violation = max(0.0, LM_magnitude - margins['LM'])
-        AP_violation = max(0.0, AP_magnitude - margins['AP'])
-        
-        # For SI: check if compression/extension is excessive
-        # expect some SI separation, so check change from original
-        original_relative_vec = case_centroids[k+1] - case_centroids[k]
-        original_SI = abs(np.dot(original_relative_vec, SI_axis_avg))
-        SI_change = abs(abs(SI_component) - original_SI)
-        SI_violation = max(0.0, SI_change - margins['SI'])
-
-        penalty += (
-            LM_violation**2 +
-            AP_violation**2 +
+        w_rot = 100
+        penalty += ( 
+            LM_violation**2 + 
+            AP_violation**2 + 
             SI_violation**2 +
-            SI_rot_violation**2
+            w_rot * SI_rot_violation**2 + 
+            w_rot * LM_rot_violation**2 + 
+            w_rot * AP_rot_violation**2 
         )
-    
+
+
     return penalty / float(K - 1)
 
 

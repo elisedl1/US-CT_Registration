@@ -21,10 +21,10 @@ class PyNrrdParser:
         self.origin_zxy = self.sitk_origin[::-1].astype(np.float64)
         self.end_zxy = self.origin_zxy + (self.size - 1) * self.spacing_zxy
         
-        # ===== ADD THESE THREE LINES FOR GPU CACHING =====
-        self.array_gpu = None  # Cache for GPU tensor
-        self.transform_cache = {}  # Cache for origin/spacing/dir_inv per device/dtype
-        # ================================================
+        # GPU CASHING
+        self.array_gpu = None  
+        self.transform_cache = {}  
+
 
     def compute_positions(self, indices: torch.Tensor) -> np.ndarray:
         idx_np = indices.cpu().numpy().astype(np.float64)
@@ -108,15 +108,12 @@ class PyNrrdParser:
         counts = np.maximum(counts, 1)
         return tuple(counts.tolist())
 
-    # ===== REPLACE THE ENTIRE sample_at_physical_points_gpu METHOD =====
     def sample_at_physical_points_gpu(self, positions: torch.Tensor) -> torch.Tensor:
-        """
-        Optimized GPU sampling with caching to avoid repeated CPU->GPU transfers
-        """
+
         device = positions.device
         dtype = positions.dtype
         
-        # OPTIMIZATION 1: Cache GPU array (convert once, not every call)
+        # OPTIMIZATION 1: cache GPU array (convert once, not every call)
         if self.array_gpu is None or self.array_gpu.device != device:
             self.array_gpu = torch.from_numpy(self.array).to(device=device, dtype=torch.float32)
         
@@ -124,7 +121,7 @@ class PyNrrdParser:
         if array_t.dtype != dtype:
             array_t = array_t.to(dtype)
         
-        # OPTIMIZATION 2: Cache transform parameters per device/dtype
+        # OPTIMIZATION 2: cache transform parameters per device/dtype
         cache_key = (str(device), str(dtype))
         if cache_key not in self.transform_cache:
             origin = torch.tensor(self.sitk_origin, device=device, dtype=dtype)
@@ -138,29 +135,22 @@ class PyNrrdParser:
                 'dir_inv': dir_inv
             }
         
-        # Use cached values
         cache = self.transform_cache[cache_key]
         origin = cache['origin']
         spacing = cache['spacing']
         dir_inv = cache['dir_inv']
         
-        # Transform physical positions to voxel indices
+        # transform physical positions to voxel indices
         offset = positions - origin
         idx_xyz = (offset @ dir_inv.T) / spacing
         idx_zxy = idx_xyz[:, [2, 1, 0]]
         
         return self._trilinear_interpolate_gpu(array_t, idx_zxy)
-    # ===================================================================
     
     
     @staticmethod
     def _trilinear_interpolate_gpu(array_t: torch.Tensor, coords_zxy: torch.Tensor) -> torch.Tensor:
-        """
-        Torch version of trilinear interpolation.
-        array_t: (D,H,W) tensor
-        coords_zxy: (N,3) continuous positions in z,y,x order
-        Returns: (N,) tensor of interpolated values
-        """
+
         D, H, W = array_t.shape
         z = coords_zxy[:, 0]
         y = coords_zxy[:, 1]
