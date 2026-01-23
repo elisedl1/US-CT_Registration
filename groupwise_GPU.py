@@ -31,7 +31,7 @@ class ExperimentType(Enum):
 
 
 # CHANGE THIS TO SELECT EXPERIMENT
-EXPERIMENT = ExperimentType.ROBUSTNESS
+EXPERIMENT = ExperimentType.MISSING_DATA
 SUCCESS_THRESH_MM = 2.0
 
 
@@ -516,7 +516,7 @@ if __name__ == "__main__":
                 plot_path = os.path.join("optimization_metrics.png")
                 plt.savefig(plot_path, dpi=150)
                 plt.close()
-                print(f"\n Saved optimization plot → {plot_path}")
+                print(f"\n Saved optimization plot to: {plot_path}")
 
 
 
@@ -581,7 +581,7 @@ if __name__ == "__main__":
         json.dump(all_results, f, indent=2)
 
     print(f"\n{'='*70}")
-    print(f"✓ Saved results → {out_path}")
+    print(f" Saved results to: {out_path}")
     print(f"{'='*70}")
 
     # print
