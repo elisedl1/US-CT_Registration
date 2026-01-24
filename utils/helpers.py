@@ -192,7 +192,7 @@ def compute_ivd_collision_loss(pairings, transforms_list, case_names):
 
         # COMPUTE LOSS
         # w_collision = 1.0   # critical - prevent collisions, mayeb try 2?
-        w_mean_spacing = 0.5   # moderate - maintain anatomy
+        w_mean_spacing = 1.5   # moderate - maintain anatomy
         w_direction = 1.0
         # w_relative_spacing = 1.0
         
@@ -299,6 +299,9 @@ def compute_inter_vertebral_displacement_penalty(moved_centroids, case_centroids
     return penalty / float(K - 1)
 
 
+def sigmoid_ramp(iteration, max_iter, center=0.4, sharpness=10):
+    t = iteration / max_iter
+    return 1.0 / (1.0 + np.exp(-sharpness * (t - center)))
 
 
 def make_hinge_axes(json_path):

@@ -15,7 +15,7 @@ from collections import defaultdict
 from enum import Enum
 # imports from my files
 from utils.file_parser import SlicerJsonTagParser, PyNrrdParser
-from utils.helpers import sitk_euler_to_matrix, compute_inter_vertebral_displacement_penalty, compute_ivd_collision_loss, compute_facet_collision_loss
+from utils.helpers import sitk_euler_to_matrix, sigmoid_ramp, compute_inter_vertebral_displacement_penalty, compute_ivd_collision_loss, compute_facet_collision_loss
 from utils.similarity import IntensitySimilarity
 from extra.centroid import compute_centroid
 from extra.CT_axis import compute_ct_axes
@@ -31,7 +31,7 @@ class ExperimentType(Enum):
 
 
 # CHANGE THIS TO SELECT EXPERIMENT
-EXPERIMENT = ExperimentType.MISSING_DATA
+EXPERIMENT = ExperimentType.NORMAL
 SUCCESS_THRESH_MM = 2.0
 
 
@@ -39,7 +39,7 @@ def get_experiment_settings(exp_type):
     """define experiment-specific settings"""
     if exp_type == ExperimentType.NORMAL:
         return {
-            "us_files": ["US_complete_cal.nrrd"], # can change this to L3
+            "us_files": ["US_full_L3_dropoutref_cal.nrrd"], # can change this to L3
             "perturb": False,
             "n_runs": 1
         }
@@ -55,7 +55,7 @@ def get_experiment_settings(exp_type):
         return {
             "us_files": ["US_full_L3_dropoutref_cal.nrrd"],
             "perturb": False,
-            "n_runs": 30
+            "n_runs": 10
         }
     
     if exp_type == ExperimentType.ROBUSTNESS:
@@ -160,7 +160,7 @@ def evaluate_group_gpu(flat_params, K, centers, sampled_positions_list,
 
     mean_sim = total_sim / float(K)
 
-    lambda_axes = 0.01
+    lambda_axes = 0.01 # 0.01
     axes_margins = {
         'LM': 2.0,
         'AP': 2.0,
@@ -174,7 +174,7 @@ def evaluate_group_gpu(flat_params, K, centers, sampled_positions_list,
         moved_centroids, case_centroids, case_axes, transforms_list, axes_margins
     )
 
-    lambda_ivd = 0.001
+    lambda_ivd = 0.001 # 0.001
     ivd_loss, ivd_metrics = compute_ivd_collision_loss(pairings, transforms_list, case_names)
     
     lambda_facet = 0.000
@@ -200,7 +200,8 @@ def evaluate_group_gpu(flat_params, K, centers, sampled_positions_list,
 
 # SINGLE REGISTRATION WRAPPER
 def run_single_registration(fixed_file, cases_dir, mesh_dir, output_dir, case_names, 
-    apply_perturbation, rng_seed=None, K=None, pairings=None,facet_pairings=None,track_metrics=False ):
+    apply_perturbation, rng_seed=None, K=None, pairings=None,facet_pairings=None,track_metrics=False,
+    save_transforms=False):
 
     
     # set random seed if provided
@@ -304,10 +305,10 @@ def run_single_registration(fixed_file, cases_dir, mesh_dir, output_dir, case_na
     base_stds = [0.01, 0.01, 0.01, 1.0, 1.0, 1.0]
     cma_stds = base_stds * K
     
-    popsize = 80
+    popsize = 100 # was 80
     parents = 20
-    lower_per = [-0.4, -0.4, -0.4, -5, -5, -5]
-    upper_per = [0.4, 0.4, 0.4, 5, 5, 5]
+    lower_per = [-0.4, -0.4, -0.4, -7, -7, -7] # first three are rotation (rad), then translation
+    upper_per = [0.4, 0.4, 0.4, 7, 7, 7] # was all 5 and -5
     lower = lower_per * K
     upper = upper_per * K
     
@@ -335,8 +336,8 @@ def run_single_registration(fixed_file, cases_dir, mesh_dir, output_dir, case_na
             'popsize': popsize,
             'CMA_mu': parents,
             'bounds': [lower, upper],
-            'verb_disp': 0,  # S
-            'maxiter': 80,
+            'verb_disp': 0,  
+            'maxiter': 100, # was 80
             'tolfun': 1e-5,
         }
     )
@@ -369,6 +370,23 @@ def run_single_registration(fixed_file, cases_dir, mesh_dir, output_dir, case_na
     # FINAL TRE
     best_flat = es.result.xbest
     tre_after = compute_case_tre(best_flat, K, case_names, case_landmarks, centers)
+
+    if save_transforms:
+        print("\nSaving transforms for each vertebra...")
+        for k, case in enumerate(case_names):
+            params = best_flat[6*k:6*(k+1)]
+            tx = sitk.Euler3DTransform()
+            tx.SetCenter(centers[k].tolist())
+            tx.SetParameters(params.tolist())
+            
+            # Save transform with run_id in filename if doing multiple runs
+            if rng_seed is not None and rng_seed > 0:
+                out_name = os.path.join(output_dir, f"TransformParameters_groupwise_{case}_run{rng_seed}.h5")
+            else:
+                out_name = os.path.join(output_dir, f"TransformParameters_groupwise_{case}.h5")
+            
+            sitk.WriteTransform(tx, out_name)
+            print(f"  Wrote transform for {case}: {out_name}")
     
     runtime = time.time() - start_time
     success, per_vertebra_success = success_from_tre(tre_after, SUCCESS_THRESH_MM)
@@ -469,7 +487,8 @@ if __name__ == "__main__":
                 K=K,
                 pairings=pairings,
                 facet_pairings=facet_pairings,
-                track_metrics=track_metrics
+                track_metrics=track_metrics,
+                save_transforms=(EXPERIMENT == ExperimentType.NORMAL)
             )
             
             # results
