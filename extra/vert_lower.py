@@ -45,15 +45,15 @@ def get_body(ct_files, output_dir):
 if __name__ == "__main__":
 
     CT_files = [
-        "/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/CT_segmentations/intra1_seg/L1/CT_L1.nrrd",
-        "/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/CT_segmentations/intra1_seg/L2/CT_L2.nrrd",
-        "/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/CT_segmentations/intra1_seg/L3/CT_L3.nrrd",
-        "/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/CT_segmentations/intra1_seg/L4/CT_L4.nrrd",
+        "/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/CT_segmentations/original/CT_L1.nrrd",
+        "/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/CT_segmentations/original/CT_L2.nrrd",
+        "/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/CT_segmentations/original/CT_L3.nrrd",
+        "/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/CT_segmentations/original/CT_L4.nrrd",
     ]
 
     output_dir = (
         "/Users/elise/elisedonszelmann-lund/"
-        "Masters_Utils/Pig_Data/pig2/Registration/CT_segmentations/cropped/intra1"
+        "Masters_Utils/Pig_Data/pig2/Registration/CT_segmentations/cropped/original"
     )
 
     cropped = get_body(CT_files, output_dir)

@@ -1,5 +1,6 @@
 import SimpleITK as sitk
 import numpy as np
+from pathlib import Path
 from centroid import compute_centroid
 
 
@@ -20,25 +21,36 @@ def crop_above_centroid_voxel(img, centroid_world):
     return cropped_img
 
 
-def get_body(ct_files):
+def get_body(ct_files, output_dir):
+    # Create output directory if it doesn't exist
+    Path(output_dir).mkdir(parents=True, exist_ok=True)
+    
     cropped_images = []
     for ct_file in ct_files:
         img = load_image(ct_file)
         centroid = np.array(compute_centroid(ct_file))
         img_cropped = crop_above_centroid_voxel(img, centroid)
+        
+        # Save the cropped image
+        filename = Path(ct_file).name
+        output_path = Path(output_dir) / filename
+        sitk.WriteImage(img_cropped, str(output_path))
+        
         cropped_images.append(img_cropped)
+    
     return cropped_images
 
 
 if __name__ == "__main__":
     CT_files = [
-        "/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/CT_segmentations/original/CT_L1.nrrd",
-        "/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/CT_segmentations/original/CT_L2.nrrd",
-        "/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/CT_segmentations/original/CT_L3.nrrd",
-        "/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/CT_segmentations/original/CT_L4.nrrd",
+        "/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/CT_segmentations/intra2_seg/CT_L1.nrrd",
+        "/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/CT_segmentations/intra2_seg/CT_L2.nrrd",
+        "/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/CT_segmentations/intra2_seg/CT_L3.nrrd",
+        "/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/CT_segmentations/intra2_seg/CT_L4.nrrd",
     ]
 
-
-    cropped = get_body(CT_files)
-    output_dir = "/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/CT_segmentations/cropped/intra1"
-    print("Cropped and saved", len(cropped), "images")
+    output_dir = "/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/CT_segmentations/cropped/intra2"
+    
+    cropped = get_body(CT_files, output_dir)
+    
+    print("Cropped and saved", len(cropped), "images to", output_dir)

@@ -1,5 +1,6 @@
 import os
 import re
+import json
 import pyvista as pv
 import numpy as np
 from scipy.spatial import cKDTree
@@ -44,7 +45,6 @@ def parse_level(filename):
     return int(m.group(1))
 
 def filter_outlier_pairs(dists, pairs_i, pairs_j, k=2.5):
-    # remove outlying pairs based on distance using median ± k*MAD
     median = np.median(dists)
     mad = np.median(np.abs(dists - median))
     lower = median - k * mad
@@ -57,15 +57,17 @@ def compute_adjacent_vertebra_pairings(mesh_dir, suffix, n_sample=30000, n_pairs
 
     np.random.seed(seed)
 
-    # load and sort meshes
+    # find meshes
     files = [f for f in os.listdir(mesh_dir) if f.endswith(suffix) and re.search(r"L\d+", f)]
     levels = [(parse_level(f), f) for f in files]
     levels.sort(key=lambda x: x[0])
+    print("Found vertebra levels:", [lvl for lvl, _ in levels])
 
     meshes = {lvl: load_mesh(os.path.join(mesh_dir, fname)) for lvl, fname in levels}
+
     pairings = {}
 
-    for (lvl_i, _), (lvl_j, _) in zip(levels[:-1], levels[1:]):
+    for (lvl_i, fname_i), (lvl_j, fname_j) in zip(levels[:-1], levels[1:]):
         mesh_i = meshes[lvl_i]
         mesh_j = meshes[lvl_j]
 
@@ -79,7 +81,6 @@ def compute_adjacent_vertebra_pairings(mesh_dir, suffix, n_sample=30000, n_pairs
         normals_j = sample_normals(mesh_j, pts_j)
 
         dot = np.einsum("ij,ij->i", normals_i, normals_j[idx])
-
         valid_idx = np.where((dists < max_dist) & (dot < -0.7))[0]
 
         if len(valid_idx) < n_pairs:
@@ -87,30 +88,24 @@ def compute_adjacent_vertebra_pairings(mesh_dir, suffix, n_sample=30000, n_pairs
 
         keep = np.random.choice(valid_idx, size=n_pairs, replace=False)
 
-        # filter outliers based on distance
+        # filter outliers
         L_i_filtered, L_j_filtered, d_filtered = filter_outlier_pairs(
             dists[keep], pts_i[keep], pts_j[idx[keep]], k=outlier_k
         )
 
-        # compute initial vector from L_i -> L_j
-        v0 = L_j_filtered - L_i_filtered
+        # store as list of dictionaries
+        pairings[f"L{lvl_i}-L{lvl_j}"] = [
+            {"i": list(L_i_filtered[k]), "j": list(L_j_filtered[k]), "d0": float(d_filtered[k])}
+            for k in range(len(L_i_filtered))
+        ]
 
-        pairings[(lvl_i, lvl_j)] = {
-            "L_i": L_i_filtered,
-            "L_j": L_j_filtered,
-            "d0": d_filtered,
-            "v0": v0   # precomputed direction vectors
-        }
+        print(f"L{lvl_i}-L{lvl_j}: {len(L_i_filtered)} pairs saved.")
 
-        # clean up meshes to avoid errors
-        for mesh in meshes.values():
-            if hasattr(mesh, 'clear_data'):
-                mesh.clear_data()
-            mesh = None
+    return pairings, meshes
 
-    return pairings, {}
-
-def visualize_pairings(mesh_i, mesh_j, pairs_i, pairs_j, subsample=200):
+def visualize_pairings(mesh_i, mesh_j, pairs, subsample=50):
+    pairs_i = np.array([p["i"] for p in pairs])
+    pairs_j = np.array([p["j"] for p in pairs])
 
     if len(pairs_i) > subsample:
         idx = np.random.choice(len(pairs_i), subsample, replace=False)
@@ -130,29 +125,28 @@ def visualize_pairings(mesh_i, mesh_j, pairs_i, pairs_j, subsample=200):
     plotter.close()
     del plotter
 
-# if __name__ == "__main__":
+if __name__ == "__main__":
+    mesh_dir = "/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/CT_segmentations/cropped/original"
+    suffix = "_facet.vtk"
+    output_json = "/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/CT_segmentations/cropped/original/facet_point_pairs.json"
 
-#     # for IVD
-#     mesh_dir = "/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/CT_segmentations/cropped/intra1"
-#     # suffix = "_body.vtk"
-#     suffix = "_upper.vtk"
+    pairings, meshes = compute_adjacent_vertebra_pairings(
+        mesh_dir,
+        suffix,
+        n_sample=30000,
+        n_pairs=500,
+        max_dist=8.0,
+        seed=42,
+        outlier_k=2.5
+    )
 
-#     pairings, meshes = compute_adjacent_vertebra_pairings(
-#         mesh_dir,
-#         suffix,
-#         n_sample=30000,
-#         n_pairs=500,
-#         max_dist=8.0,
-#         seed=42,
-#         outlier_k=3.5  # MAD threshold
-#     )
+    # Save all pairs to JSON
+    with open(output_json, "w") as f:
+        json.dump(pairings, f, indent=4)
+    print(f"Saved all vertebra pairs to {output_json}")
 
-#     for (lvl_i, lvl_j), data in pairings.items():
-#         print(f"Visualizing L{lvl_i}-L{lvl_j} ({len(data['L_i'])} pairs after filtering)")
-#         visualize_pairings(
-#             meshes[lvl_i],
-#             meshes[lvl_j],
-#             data["L_i"],
-#             data["L_j"],
-#             subsample=50
-#         )
+    # Optional: visualize each pair
+    for pair_name, pairs in pairings.items():
+        lvl_i, lvl_j = map(int, re.findall(r"\d+", pair_name))
+        print(f"Visualizing {pair_name} ({len(pairs)} pairs)")
+        visualize_pairings(meshes[lvl_i], meshes[lvl_j], pairs, subsample=50)
