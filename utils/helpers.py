@@ -18,7 +18,7 @@ def compute_facet_collision_loss(pairings, transforms_list, case_names):
         pair_key = (i + 1, i + 2)
         
         if pair_key not in pairings:
-            print(f"SKIPPED - {pair_key} not found in pairings")
+            # print(f"SKIPPED - {pair_key} not found in pairings")
             continue
             
         # point pairs for this facet
@@ -111,6 +111,7 @@ def compute_ivd_collision_loss(pairings, transforms_list, case_names):
     # IVD collision loss tuned for your specific anatomy
     total_loss = 0.0
     metrics = {}
+
     
     for i in range(len(case_names) - 1):
         vert1 = case_names[i]
@@ -120,6 +121,7 @@ def compute_ivd_collision_loss(pairings, transforms_list, case_names):
         if pair_key not in pairings:
             print(f"SKIPPED - {pair_key} not found in pairings")
             continue
+
             
         # point pairs for this IVD
         pts1 = pairings[pair_key]['L_i'] 
@@ -153,26 +155,13 @@ def compute_ivd_collision_loss(pairings, transforms_list, case_names):
 
 
 
-        # # LOSS COMPONENT 2: COLLISION AVOIDANCE (HARD)
-        # collision_threshold = 1.0  # mm - hard collision boundary
-        # violations = collision_threshold - current_distances
-        # violations = np.maximum(0, violations)
-        
-        # # exp penalty - gets severe as penetration deepens
-        # collision_penalty = np.sum(np.exp(violations) - 1.0)
-        # n_collisions = np.sum(current_distances < collision_threshold)
-        
+        # LOSS COMPONENT 3a: PRESERVE MIN SPACING (SOFT)
+        min_allowed = 0.6 * initial_distances  # 40% compression cap (physio-safe)
 
+        violations = min_allowed - current_distances
+        violations = np.maximum(0, violations)
 
-        # # LOSS COMPONENT 3a: PRESERVE MIN SPACING (SOFT)
-        # max_compression_frac = 0.35 # percentile
-        # min_allowed = (1.0 - max_compression_frac) * initial_distances
-
-        # spacing_violations = min_allowed - current_distances
-        # spacing_violations = np.maximum(0, spacing_violations)
-
-        # relative_spacing_penalty = np.mean(spacing_violations ** 2) # try .sum?
-
+        min_spacing_penalty = np.sum(np.exp(violations) - 1.0)
 
 
         # LOSS COMPONENT 3b: PRESERVE MEAN SPACING (SOFT)
@@ -180,7 +169,7 @@ def compute_ivd_collision_loss(pairings, transforms_list, case_names):
         current_mean = np.mean(current_distances)
         
         # tolerance
-        tolerance = 1.5  # mm - allows curvature/natural compression
+        tolerance = 3.0  # mm - allows curvature/natural compression
         mean_deviation = abs(current_mean - initial_mean) - tolerance
         
         if mean_deviation > 0:
@@ -192,21 +181,24 @@ def compute_ivd_collision_loss(pairings, transforms_list, case_names):
 
         # COMPUTE LOSS
         # w_collision = 1.0   # critical - prevent collisions, mayeb try 2?
-        w_mean_spacing = 1.5   # moderate - maintain anatomy
-        w_direction = 1.0
-        # w_relative_spacing = 1.0
+        w_mean_spacing = 3.0   # moderate - maintain anatomy
+        w_direction = 1.0 # 1.0
+        w_min_spacing = 2.0
         
         pair_loss = (
             # w_collision * collision_penalty +
             # w_relative_spacing * relative_spacing_penalty +
             w_mean_spacing * mean_spacing_penalty +
-            w_direction * direction_penalty
+            w_direction * direction_penalty + 
+            w_min_spacing * min_spacing_penalty
         )
         
         total_loss += pair_loss
 
         pair_name = f"L{pair_key[0]}-L{pair_key[1]}"
         
+
+
         # store metrics
         # metrics[pair_name] = {
         #     'pair_idx': pair_key,   
@@ -299,9 +291,32 @@ def compute_inter_vertebral_displacement_penalty(moved_centroids, case_centroids
     return penalty / float(K - 1)
 
 
-def sigmoid_ramp(iteration, max_iter, center=0.4, sharpness=10):
+def sigmoid_ramp(iteration, max_iter, center=0.8, sharpness=10):
+    # constraints are half strength at 40% of run 
     t = iteration / max_iter
     return 1.0 / (1.0 + np.exp(-sharpness * (t - center)))
+
+def linear_lambda(iteration, max_iter, lambda_final, start_frac=0.5):
+    # lambda is 0 until start_frac * max_iter,then increases linearly to lambda_final by max_iter.
+
+    t = iteration / max_iter
+
+    if t <= start_frac:
+        return 0.0
+    else:
+        return lambda_final * (t - start_frac) / (1.0 - start_frac)
+
+
+def step_lambda(iteration, max_iter, lambda_final, start_frac=0.5):
+
+    if iteration < start_frac * max_iter:
+        return 0.0
+    else:
+        progress = (iteration - start_frac * max_iter) / ((1 - start_frac) * max_iter)
+        # square ramp for very gentle start
+        return lambda_final * (progress ** 2)
+
+
 
 
 def make_hinge_axes(json_path):
@@ -328,29 +343,6 @@ def make_hinge_axes(json_path):
 
     return hinge_axis, disc_axis
 
-
-def normalize_hessian(hessian: torch.tensor) -> torch.Tensor:
-    hessian_magnitude = torch.sum(hessian ** 2, axis=(-1, -2)) ** 0.5
-    hessian_magnitude[hessian_magnitude == 0.0] = 1.0
-    return hessian / hessian_magnitude.unsqueeze(-1).unsqueeze(-1)
-
-
-def normalize_grad(grad: torch.tensor) -> torch.tensor:
-    grad_magnitude = torch.sum(grad ** 2, axis=-1) ** 0.5
-    grad_magnitude[grad_magnitude == 0.0] = 1.0
-    return grad / grad_magnitude.unsqueeze(-1)
-
-
-def create_image_mask(
-    image: torch.tensor, dilation_size: int
-) -> torch.Tensor:
-    bg_tensor = image == 0.0
-    bg = bg_tensor.numpy()
-    hole_size = 5
-    bg = binary_erosion(bg, iterations=hole_size)
-    bg = binary_dilation(bg, iterations=hole_size)
-    bg = binary_dilation(bg, iterations=dilation_size)
-    return torch.tensor(~bg)
 
 def create_boundary_exclusion_mask(image: torch.Tensor, erosion_size: int) -> torch.Tensor:
     """
@@ -426,23 +418,6 @@ def transform_affine_3d(
     return (transformed_points + affine_matrix[:, -1]).float()
 
 
-def compute_determinant(
-    gradient: torch.Tensor, hessian: torch.Tensor
-) -> torch.Tensor:
-    dyadic = torch.einsum('...i,...j->...ij', *2*(gradient,))
-    xx = torch.sum(hessian * hessian, axis=(-1, -2))
-    yy = torch.sum(dyadic * dyadic, axis=(-1, -2))
-    xy = torch.sum(hessian * dyadic, axis=(-1, -2))
-    return xx*yy - xy**2
-
-
-def compute_vector_determinant(
-    vector1: torch.Tensor, vector2:torch.Tensor
-) -> torch.Tensor:
-    xx = torch.sum(vector1 * vector1, axis=-1)
-    yy = torch.sum(vector2 * vector2, axis=-1)
-    xy = torch.sum(vector1 * vector2, axis=-1)
-    return xx*yy - xy**2
 
 def export_samples_to_slicer_json(
     fixed_parser, fixed_mask_indices, output_path, samples_count=1000, name="Fiducials"

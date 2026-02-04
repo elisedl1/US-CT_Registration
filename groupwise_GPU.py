@@ -15,7 +15,7 @@ from collections import defaultdict
 from enum import Enum
 # imports from my files
 from utils.file_parser import SlicerJsonTagParser, PyNrrdParser
-from utils.helpers import sitk_euler_to_matrix, sigmoid_ramp, compute_inter_vertebral_displacement_penalty, compute_ivd_collision_loss, compute_facet_collision_loss
+from utils.helpers import sitk_euler_to_matrix,step_lambda,linear_lambda, sigmoid_ramp, compute_inter_vertebral_displacement_penalty, compute_ivd_collision_loss, compute_facet_collision_loss
 from utils.similarity import IntensitySimilarity
 from extra.centroid import compute_centroid
 from extra.CT_axis import compute_ct_axes
@@ -39,7 +39,7 @@ def get_experiment_settings(exp_type):
     """define experiment-specific settings"""
     if exp_type == ExperimentType.NORMAL:
         return {
-            "us_files": ["US_full_L3_dropoutref_cal.nrrd"], # can change this to L3
+            "us_files": ["US_complete_cal.nrrd"], # can change this to L3
             "perturb": False,
             "n_runs": 1
         }
@@ -122,12 +122,16 @@ def compute_case_tre(flat_params, K, case_names, case_landmarks, centers):
 def evaluate_group_gpu(flat_params, K, centers, sampled_positions_list,
                        moving_parsers, fixed_parser,
                        case_centroids, orig_dists, case_axes, pairings, facet_pairings, 
-                       case_names, device='cuda', profile=False):
+                       case_names, iteration, max_iter,
+                       device='cuda', profile=False):
 
     total_sim = 0.0
     transforms_params = []
     moved_centroids = []
     transforms_list = []
+
+
+
 
     for k in range(K):
         params = torch.tensor(flat_params[6*k:6*(k+1)], dtype=torch.float32, device=device)
@@ -160,7 +164,14 @@ def evaluate_group_gpu(flat_params, K, centers, sampled_positions_list,
 
     mean_sim = total_sim / float(K)
 
-    lambda_axes = 0.01 # 0.01
+
+    # CONSTRAINTS
+    # w = sigmoid_ramp(iteration, max_iter, center=0.4, sharpness=10)
+
+    # lambda_axes = 0.01 # 0.01
+    lambda_axes  = linear_lambda(iteration, max_iter, lambda_final=0.05,  start_frac=0.25)
+    # lambda_axes  = step_lambda(iteration, max_iter, lambda_final=0.01,  start_frac=0.25)
+
     axes_margins = {
         'LM': 2.0,
         'AP': 2.0,
@@ -174,7 +185,10 @@ def evaluate_group_gpu(flat_params, K, centers, sampled_positions_list,
         moved_centroids, case_centroids, case_axes, transforms_list, axes_margins
     )
 
-    lambda_ivd = 0.001 # 0.001
+    # lambda_ivd = 0.0005 # 0.001
+    lambda_ivd   = linear_lambda(iteration, max_iter, lambda_final=0.001, start_frac=0.25)
+    # lambda_ivd   = step_lambda(iteration, max_iter, lambda_final=0.001, start_frac=0.25)
+    # print("lambda ivd: ", lambda_ivd)
     ivd_loss, ivd_metrics = compute_ivd_collision_loss(pairings, transforms_list, case_names)
     
     lambda_facet = 0.000
@@ -202,7 +216,6 @@ def evaluate_group_gpu(flat_params, K, centers, sampled_positions_list,
 def run_single_registration(fixed_file, cases_dir, mesh_dir, output_dir, case_names, 
     apply_perturbation, rng_seed=None, K=None, pairings=None,facet_pairings=None,track_metrics=False,
     save_transforms=False):
-
     
     # set random seed if provided
     if rng_seed is not None:
@@ -302,16 +315,18 @@ def run_single_registration(fixed_file, cases_dir, mesh_dir, output_dir, case_na
     # CMA OPTIMIZATION
     x0 = np.tile(global_perturbation, K)
     sigma0 = 0.5
-    base_stds = [0.01, 0.01, 0.01, 1.0, 1.0, 1.0]
+    base_stds = [0.01, 0.01, 0.01, 0.5, 0.5, 0.5] # [0.01, 0.01, 0.01, 1.0, 1.0, 1.0]
     cma_stds = base_stds * K
     
-    popsize = 100 # was 80
+    popsize = 80 # was 80
     parents = 20
-    lower_per = [-0.4, -0.4, -0.4, -7, -7, -7] # first three are rotation (rad), then translation
-    upper_per = [0.4, 0.4, 0.4, 7, 7, 7] # was all 5 and -5
+    lower_per = [-0.4, -0.4, -0.4, -8, -8, -8] # first three are rotation (rad), then translation
+    upper_per = [0.4, 0.4, 0.4, 8, 8, 8] # was all 5 and -5
     lower = lower_per * K
     upper = upper_per * K
-    
+    max_iter = 100 # was 80, 200 didnt seem to do anything via the plot
+
+
     partial_eval = partial(
         evaluate_group_gpu,
         K=K,
@@ -325,9 +340,15 @@ def run_single_registration(fixed_file, cases_dir, mesh_dir, output_dir, case_na
         pairings=pairings,
         facet_pairings=facet_pairings,
         case_names=case_names,
+        max_iter = max_iter,
         device='cuda',
         profile=False
     )
+
+    print(f"DEBUG BEFORE CMA: pairings keys = {list(pairings.keys())}")
+    print(f"DEBUG BEFORE CMA: pairings id = {id(pairings)}")
+    print(f"DEBUG BEFORE CMA: Sample pairing: {(1,2) in pairings}")
+
     
     es = cma.CMAEvolutionStrategy(
         x0, sigma0,
@@ -337,7 +358,7 @@ def run_single_registration(fixed_file, cases_dir, mesh_dir, output_dir, case_na
             'CMA_mu': parents,
             'bounds': [lower, upper],
             'verb_disp': 0,  
-            'maxiter': 100, # was 80
+            'maxiter': max_iter, # was 80
             'tolfun': 1e-5,
         }
     )
@@ -352,9 +373,13 @@ def run_single_registration(fixed_file, cases_dir, mesh_dir, output_dir, case_na
     while not es.stop():
         solutions = es.ask()
         values = []
+
+        iteration = es.countiter
         
         for sol in solutions:
-            val, mean_sim, axes_pen, ivd_loss, facet_loss, _ = partial_eval(sol)
+            val, mean_sim, axes_pen, ivd_loss, facet_loss, _ = partial_eval(
+                sol,
+                iteration = iteration)
             values.append(val)
 
             if track_metrics:
