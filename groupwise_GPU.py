@@ -31,7 +31,7 @@ class ExperimentType(Enum):
 
 
 # CHANGE THIS TO SELECT EXPERIMENT
-EXPERIMENT = ExperimentType.NORMAL
+EXPERIMENT = ExperimentType.MISSING_DATA
 SUCCESS_THRESH_MM = 2.0
 
 
@@ -39,7 +39,7 @@ def get_experiment_settings(exp_type):
     """define experiment-specific settings"""
     if exp_type == ExperimentType.NORMAL:
         return {
-            "us_files": ["US_complete_cal.nrrd"], # can change this to L3
+            "us_files": ["US_full_L2_L3_partial.nrrd"], # can change this to partial data
             "perturb": False,
             "n_runs": 1
         }
@@ -53,9 +53,9 @@ def get_experiment_settings(exp_type):
     
     if exp_type == ExperimentType.MISSING_DATA:
         return {
-            "us_files": ["US_full_L3_dropoutref_cal.nrrd"],
-            "perturb": False,
-            "n_runs": 10
+            "us_files": ["US_full_L3_dropoutref_cal.nrrd"], # ["US_full_L2_L3_partial.nrrd"]
+            "perturb": True,
+            "n_runs": 30
         }
     
     if exp_type == ExperimentType.ROBUSTNESS:
@@ -168,8 +168,8 @@ def evaluate_group_gpu(flat_params, K, centers, sampled_positions_list,
     # CONSTRAINTS
     # w = sigmoid_ramp(iteration, max_iter, center=0.4, sharpness=10)
 
-    # lambda_axes = 0.01 # 0.01
-    lambda_axes  = linear_lambda(iteration, max_iter, lambda_final=0.05,  start_frac=0.25)
+    lambda_axes = 0.01 # 0.01
+    # lambda_axes  = linear_lambda(iteration, max_iter, lambda_final=0.05,  start_frac=0.25)
     # lambda_axes  = step_lambda(iteration, max_iter, lambda_final=0.01,  start_frac=0.25)
 
     axes_margins = {
@@ -185,8 +185,8 @@ def evaluate_group_gpu(flat_params, K, centers, sampled_positions_list,
         moved_centroids, case_centroids, case_axes, transforms_list, axes_margins
     )
 
-    # lambda_ivd = 0.0005 # 0.001
-    lambda_ivd   = linear_lambda(iteration, max_iter, lambda_final=0.001, start_frac=0.25)
+    lambda_ivd = 0.001 # 0.001 , 0.0005
+    # lambda_ivd   = linear_lambda(iteration, max_iter, lambda_final=0.05, start_frac=0.25)
     # lambda_ivd   = step_lambda(iteration, max_iter, lambda_final=0.001, start_frac=0.25)
     # print("lambda ivd: ", lambda_ivd)
     ivd_loss, ivd_metrics = compute_ivd_collision_loss(pairings, transforms_list, case_names)
@@ -345,9 +345,6 @@ def run_single_registration(fixed_file, cases_dir, mesh_dir, output_dir, case_na
         profile=False
     )
 
-    print(f"DEBUG BEFORE CMA: pairings keys = {list(pairings.keys())}")
-    print(f"DEBUG BEFORE CMA: pairings id = {id(pairings)}")
-    print(f"DEBUG BEFORE CMA: Sample pairing: {(1,2) in pairings}")
 
     
     es = cma.CMAEvolutionStrategy(
