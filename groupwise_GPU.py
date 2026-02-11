@@ -31,7 +31,7 @@ class ExperimentType(Enum):
 
 
 # CHANGE THIS TO SELECT EXPERIMENT
-EXPERIMENT = ExperimentType.MISSING_DATA
+EXPERIMENT = ExperimentType.NORMAL
 SUCCESS_THRESH_MM = 2.0
 
 
@@ -54,7 +54,7 @@ def get_experiment_settings(exp_type):
     if exp_type == ExperimentType.MISSING_DATA:
         return {
             "us_files": ["US_full_L3_dropoutref_cal.nrrd"], # ["US_full_L2_L3_partial.nrrd"]
-            "perturb": True,
+            "perturb": False,
             "n_runs": 30
         }
     
@@ -168,8 +168,8 @@ def evaluate_group_gpu(flat_params, K, centers, sampled_positions_list,
     # CONSTRAINTS
     # w = sigmoid_ramp(iteration, max_iter, center=0.4, sharpness=10)
 
-    lambda_axes = 0.01 # 0.01
-    # lambda_axes  = linear_lambda(iteration, max_iter, lambda_final=0.05,  start_frac=0.25)
+    # lambda_axes = 0.01 # 0.01
+    lambda_axes  = linear_lambda(iteration, max_iter, lambda_final=0.05,  start_frac=0.25)
     # lambda_axes  = step_lambda(iteration, max_iter, lambda_final=0.01,  start_frac=0.25)
 
     axes_margins = {
@@ -185,8 +185,8 @@ def evaluate_group_gpu(flat_params, K, centers, sampled_positions_list,
         moved_centroids, case_centroids, case_axes, transforms_list, axes_margins
     )
 
-    lambda_ivd = 0.001 # 0.001 , 0.0005
-    # lambda_ivd   = linear_lambda(iteration, max_iter, lambda_final=0.05, start_frac=0.25)
+    # lambda_ivd = 0.001 # 0.001 , 0.0005
+    lambda_ivd   = linear_lambda(iteration, max_iter, lambda_final=0.05, start_frac=0.25)
     # lambda_ivd   = step_lambda(iteration, max_iter, lambda_final=0.001, start_frac=0.25)
     # print("lambda ivd: ", lambda_ivd)
     ivd_loss, ivd_metrics = compute_ivd_collision_loss(pairings, transforms_list, case_names)
@@ -324,7 +324,7 @@ def run_single_registration(fixed_file, cases_dir, mesh_dir, output_dir, case_na
     upper_per = [0.4, 0.4, 0.4, 8, 8, 8] # was all 5 and -5
     lower = lower_per * K
     upper = upper_per * K
-    max_iter = 100 # was 80, 200 didnt seem to do anything via the plot
+    max_iter = 120 # was 80, 200 didnt seem to do anything via the plot
 
 
     partial_eval = partial(
