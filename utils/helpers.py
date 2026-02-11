@@ -197,27 +197,16 @@ def compute_ivd_collision_loss(pairings, transforms_list, case_names):
 
         pair_name = f"L{pair_key[0]}-L{pair_key[1]}"
         
-
-
-        # store metrics
-        # metrics[pair_name] = {
-        #     'pair_idx': pair_key,   
-        #     'current_mean': float(current_mean),
-        #     'initial_mean': float(initial_mean),
-        #     'current_min': float(np.min(current_distances)),
-        #     'current_max': float(np.max(current_distances)),
-        #     'current_std': float(np.std(current_distances)),
-        #     'n_collisions': int(n_collisions),
-        #     'collision_loss': float(w_collision * collision_penalty),
-        #     'mean_spacing_loss': float(w_mean_spacing * mean_spacing_penalty),
-        #     'total_loss': float(pair_loss)
-        # }
     
     return total_loss, metrics
 
 
-def compute_inter_vertebral_displacement_penalty(moved_centroids, case_centroids, case_axes, transforms_list, margins):
-
+def compute_inter_vertebral_displacement_penalty(moved_centroids, case_centroids, 
+                                                  case_axes, transforms_list, margins):
+    """
+    Compute penalty for inter-vertebral displacement and rotation constraints.
+    Uses INFERIOR vertebra's frame as reference for displacement measurements.
+    """
     penalty = 0.0
     K = len(moved_centroids)
     
@@ -225,53 +214,59 @@ def compute_inter_vertebral_displacement_penalty(moved_centroids, case_centroids
         return 0.0
 
     for k in range(K - 1):
+        # Displacement from inferior (k) to superior (k+1)
         relative_vec = moved_centroids[k+1] - moved_centroids[k]
 
-        # get transforms from list
+        # Get transforms
         tx_k = transforms_list[k]
         tx_k1 = transforms_list[k+1]
         M_k = sitk_euler_to_matrix(tx_k)
         M_k1 = sitk_euler_to_matrix(tx_k1)
         R_k = M_k[:3, :3]
         R_k1 = M_k1[:3, :3]
+        
+        # Get original axes
         LM_k_orig, AP_k_orig, SI_k_orig = case_axes[k]
         LM_k1_orig, AP_k1_orig, SI_k1_orig = case_axes[k+1]
 
-        LM_k_rot  = R_k @ LM_k_orig
-        AP_k_rot  = R_k @ AP_k_orig
-        SI_k_rot  = R_k @ SI_k_orig
+        # Rotate INFERIOR vertebra's axes (k)
+        LM_k = R_k @ LM_k_orig
+        AP_k = R_k @ AP_k_orig
+        SI_k = R_k @ SI_k_orig
+        
+        # Normalize
+        LM_k /= np.linalg.norm(LM_k)
+        AP_k /= np.linalg.norm(AP_k)
+        SI_k /= np.linalg.norm(SI_k)
 
-        LM_k1_rot = R_k1 @ LM_k1_orig
-        AP_k1_rot = R_k1 @ AP_k1_orig
-        SI_k1_rot = R_k1 @ SI_k1_orig
+        # PROJECT DISPLACEMENT onto inferior's axes
+        LM_component = abs(np.dot(relative_vec, LM_k))
+        AP_component = abs(np.dot(relative_vec, AP_k))
+        SI_component = abs(np.dot(relative_vec, SI_k))
 
-        # LINEAR VIOLATION
-        LM_avg = (LM_k_rot + LM_k1_rot) / 2.0
-        LM_avg /= np.linalg.norm(LM_avg)
-        AP_avg = (AP_k_rot + AP_k1_rot) / 2.0
-        AP_avg /= np.linalg.norm(AP_avg)
-        SI_avg = (SI_k_rot + SI_k1_rot) / 2.0
-        SI_avg /= np.linalg.norm(SI_avg)
-
-        LM_component = abs(np.dot(relative_vec, LM_avg))
-        AP_component = abs(np.dot(relative_vec, AP_avg))
-        SI_component = abs(np.dot(relative_vec, SI_avg))
-
+        # LINEAR VIOLATIONS
         LM_violation = max(0.0, LM_component - margins['LM'])
         AP_violation = max(0.0, AP_component - margins['AP'])
+        
         original_vec = case_centroids[k+1] - case_centroids[k]
-        original_SI = abs(np.dot(original_vec, SI_avg))
+        original_SI = abs(np.dot(original_vec, SI_k))
         SI_violation = max(0.0, abs(SI_component - original_SI) - margins['SI'])
 
-        # ROTATION VIOLATIONS
+        # ROTATION VIOLATIONS (still need both vertebrae for this)
+        LM_k1 = R_k1 @ LM_k1_orig
+        AP_k1 = R_k1 @ AP_k1_orig
+        SI_k1 = R_k1 @ SI_k1_orig
+        
+        LM_k1 /= np.linalg.norm(LM_k1)
+        AP_k1 /= np.linalg.norm(AP_k1)
+        SI_k1 /= np.linalg.norm(SI_k1)
+        
         def axis_angle(v1, v2):
-            v1 = v1 / np.linalg.norm(v1)
-            v2 = v2 / np.linalg.norm(v2)
             return np.arccos(np.clip(np.dot(v1, v2), -1.0, 1.0))
 
-        SI_rot_angle = axis_angle(LM_k_rot, LM_k1_rot)
-        LM_rot_angle = axis_angle(AP_k_rot, AP_k1_rot)
-        AP_rot_angle = axis_angle(SI_k_rot, SI_k1_rot)
+        SI_rot_angle = axis_angle(LM_k, LM_k1)
+        LM_rot_angle = axis_angle(AP_k, AP_k1)
+        AP_rot_angle = axis_angle(SI_k, SI_k1)
 
         SI_rot_violation = max(0.0, SI_rot_angle - margins['SI_rot'])
         LM_rot_violation = max(0.0, LM_rot_angle - margins['LM_rot'])
@@ -287,8 +282,85 @@ def compute_inter_vertebral_displacement_penalty(moved_centroids, case_centroids
             w_rot * AP_rot_violation**2 
         )
 
-
     return penalty / float(K - 1)
+
+
+# AVERAGE VERSION 
+# def compute_inter_vertebral_displacement_penalty(moved_centroids, case_centroids, case_axes, transforms_list, margins):
+
+#     penalty = 0.0
+#     K = len(moved_centroids)
+    
+#     if K < 2:
+#         return 0.0
+
+#     for k in range(K - 1):
+#         relative_vec = moved_centroids[k+1] - moved_centroids[k]
+
+#         # get transforms from list
+#         tx_k = transforms_list[k]
+#         tx_k1 = transforms_list[k+1]
+#         M_k = sitk_euler_to_matrix(tx_k)
+#         M_k1 = sitk_euler_to_matrix(tx_k1)
+#         R_k = M_k[:3, :3]
+#         R_k1 = M_k1[:3, :3]
+#         LM_k_orig, AP_k_orig, SI_k_orig = case_axes[k]
+#         LM_k1_orig, AP_k1_orig, SI_k1_orig = case_axes[k+1]
+
+#         LM_k_rot  = R_k @ LM_k_orig
+#         AP_k_rot  = R_k @ AP_k_orig
+#         SI_k_rot  = R_k @ SI_k_orig
+
+#         LM_k1_rot = R_k1 @ LM_k1_orig
+#         AP_k1_rot = R_k1 @ AP_k1_orig
+#         SI_k1_rot = R_k1 @ SI_k1_orig
+
+#         # LINEAR VIOLATION
+#         LM_avg = (LM_k_rot + LM_k1_rot) / 2.0
+#         LM_avg /= np.linalg.norm(LM_avg)
+#         AP_avg = (AP_k_rot + AP_k1_rot) / 2.0
+#         AP_avg /= np.linalg.norm(AP_avg)
+#         SI_avg = (SI_k_rot + SI_k1_rot) / 2.0
+#         SI_avg /= np.linalg.norm(SI_avg)
+
+#         LM_component = abs(np.dot(relative_vec, LM_avg))
+#         AP_component = abs(np.dot(relative_vec, AP_avg))
+#         SI_component = abs(np.dot(relative_vec, SI_avg))
+
+#         LM_violation = max(0.0, LM_component - margins['LM'])
+#         AP_violation = max(0.0, AP_component - margins['AP'])
+#         original_vec = case_centroids[k+1] - case_centroids[k]
+#         original_SI = abs(np.dot(original_vec, SI_avg))
+#         SI_violation = max(0.0, abs(SI_component - original_SI) - margins['SI'])
+
+#         # ROTATION VIOLATIONS
+#         def axis_angle(v1, v2):
+#             v1 = v1 / np.linalg.norm(v1)
+#             v2 = v2 / np.linalg.norm(v2)
+#             return np.arccos(np.clip(np.dot(v1, v2), -1.0, 1.0))
+
+#         SI_rot_angle = axis_angle(LM_k_rot, LM_k1_rot)
+#         LM_rot_angle = axis_angle(AP_k_rot, AP_k1_rot)
+#         AP_rot_angle = axis_angle(SI_k_rot, SI_k1_rot)
+
+#         SI_rot_violation = max(0.0, SI_rot_angle - margins['SI_rot'])
+#         LM_rot_violation = max(0.0, LM_rot_angle - margins['LM_rot'])
+#         AP_rot_violation = max(0.0, AP_rot_angle - margins['AP_rot'])
+        
+#         w_rot = 100
+#         penalty += ( 
+#             LM_violation**2 + 
+#             AP_violation**2 + 
+#             SI_violation**2 +
+#             w_rot * SI_rot_violation**2 + 
+#             w_rot * LM_rot_violation**2 + 
+#             w_rot * AP_rot_violation**2 
+#         )
+
+
+#     return penalty / float(K - 1)
+
+
 
 
 def sigmoid_ramp(iteration, max_iter, center=0.8, sharpness=10):
