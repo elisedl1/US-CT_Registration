@@ -26,8 +26,8 @@ def visualize_point_pairs(mesh1_points, mesh2_points, pairs_i, pairs_j, subsampl
 
 def generate_sofa_springs_json_with_viz(vertebra_pairs_file, facet_pairs_file, output_json_file,
                                         subsample_for_viz=50,
-                                        stiffness_body=8000, damping_body=500,
-                                        stiffness_facet=4000, damping_facet=300,
+                                        stiffness_body=500, damping_body=3,
+                                        stiffness_facet=8000, damping_facet=500,
                                         visualize=True):
     """
     Converts point pairs JSONs into a SOFA-compatible spring JSON and optionally visualizes them.
@@ -123,7 +123,7 @@ def generate_sofa_springs_json_with_viz(vertebra_pairs_file, facet_pairs_file, o
 
 
 # Example usage:
-generate_sofa_springs_json_with_viz("/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/CT_segmentations/cropped/original/body_point_pairs.json", "/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/CT_segmentations/cropped/original/facet_point_pairs.json", "sofa_springs.json")
+generate_sofa_springs_json_with_viz("/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/CT_segmentations/original_sofa/body_point_pairs.json", "/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/CT_segmentations/original_sofa/facet_point_pairs.json", "sofa_springs.json")
 
 
 """

@@ -43,12 +43,12 @@ def get_body(ct_files, output_dir):
 
 
 if __name__ == "__main__":
-
+    
     CT_files = [
-        "/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/CT_segmentations/original/CT_L1.nrrd",
-        "/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/CT_segmentations/original/CT_L2.nrrd",
-        "/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/CT_segmentations/original/CT_L3.nrrd",
-        "/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/CT_segmentations/original/CT_L4.nrrd",
+        "/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/CT_segmentations/original_sofa/CT_L1_decimated.nrrd",
+        "/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/CT_segmentations/original_sofa/CT_L2_decimated.nrrd",
+        "/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/CT_segmentations/original_sofa/CT_L3_decimated.nrrd",
+        "/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/CT_segmentations/original_sofa/CT_L4_decimated.nrrd",
     ]
 
     output_dir = (

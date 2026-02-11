@@ -126,9 +126,9 @@ def visualize_pairings(mesh_i, mesh_j, pairs, subsample=50):
     del plotter
 
 if __name__ == "__main__":
-    mesh_dir = "/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/CT_segmentations/cropped/original"
+    mesh_dir = "/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/CT_segmentations/original_sofa"
     suffix = "_facet.vtk"
-    output_json = "/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/CT_segmentations/cropped/original/facet_point_pairs.json"
+    output_json = "/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/CT_segmentations/original_sofa/facet_point_pairs.json"
 
     pairings, meshes = compute_adjacent_vertebra_pairings(
         mesh_dir,
