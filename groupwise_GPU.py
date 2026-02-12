@@ -15,7 +15,7 @@ from collections import defaultdict
 from enum import Enum
 # imports from my files
 from utils.file_parser import SlicerJsonTagParser, PyNrrdParser
-from utils.helpers import sitk_euler_to_matrix,step_lambda,linear_lambda, sigmoid_ramp, compute_inter_vertebral_displacement_penalty, compute_ivd_collision_loss, compute_facet_collision_loss
+from utils.helpers import sitk_euler_to_matrix,step_lambda,linear_lambda, sigmoid_ramp, gaussian_lambda, compute_inter_vertebral_displacement_penalty, compute_ivd_collision_loss, compute_facet_collision_loss
 from utils.similarity import IntensitySimilarity
 from extra.centroid import compute_centroid
 from extra.CT_axis import compute_ct_axes
@@ -31,7 +31,7 @@ class ExperimentType(Enum):
 
 
 # CHANGE THIS TO SELECT EXPERIMENT
-EXPERIMENT = ExperimentType.NORMAL
+EXPERIMENT = ExperimentType.MISSING_DATA
 SUCCESS_THRESH_MM = 2.0
 
 
@@ -39,7 +39,7 @@ def get_experiment_settings(exp_type):
     """define experiment-specific settings"""
     if exp_type == ExperimentType.NORMAL:
         return {
-            "us_files": ["US_full_L2_L3_partial.nrrd"], # can change this to partial data
+            "us_files": ["US_missing_combined.nrrd"], # can change this to partial data, "US_missing_combined.nrrd"
             "perturb": False,
             "n_runs": 1
         }
@@ -53,16 +53,17 @@ def get_experiment_settings(exp_type):
     
     if exp_type == ExperimentType.MISSING_DATA:
         return {
-            "us_files": ["US_full_L3_dropoutref_cal.nrrd"], # ["US_full_L2_L3_partial.nrrd"]
+            "us_files": ["US_missing_combined.nrrd"], # ["US_missing_combined.nrrd"]
             "perturb": False,
-            "n_runs": 30
+            "n_runs": 10
         }
     
     if exp_type == ExperimentType.ROBUSTNESS:
         return {
             "us_files": [
                 "US_complete_cal.nrrd",
-                "US_full_L3_dropoutref_cal.nrrd"
+                "US_full_L3_dropoutref_cal.nrrd",
+                "US_missing_combined.nrrd"
             ],
             "perturb": True,
             "n_runs": 30
@@ -132,7 +133,6 @@ def evaluate_group_gpu(flat_params, K, centers, sampled_positions_list,
 
 
 
-
     for k in range(K):
         params = torch.tensor(flat_params[6*k:6*(k+1)], dtype=torch.float32, device=device)
         transforms_params.append(params.cpu().numpy())
@@ -155,21 +155,25 @@ def evaluate_group_gpu(flat_params, K, centers, sampled_positions_list,
         moving_vals = fixed_parser.sample_at_physical_points_gpu(moved_positions)
         moving_intensities = moving_vals.float()
 
-        sim = torch.mean(moving_intensities)
+        sim = torch.mean(moving_intensities) # original mean
+
+
         total_sim += sim
         
+        # move centroids
         ct_centroid = torch.tensor(case_centroids[k], device=device, dtype=torch.float32)
         moved_centroid = torch.tensor(tx_inv.TransformPoint(ct_centroid.cpu().numpy().tolist()), device=device)
         moved_centroids.append(moved_centroid.cpu().numpy())
 
-    mean_sim = total_sim / float(K)
+
+    mean_sim = (total_sim / float(K)) ** 2
 
 
     # CONSTRAINTS
-    # w = sigmoid_ramp(iteration, max_iter, center=0.4, sharpness=10)
-
-    # lambda_axes = 0.01 # 0.01
-    lambda_axes  = linear_lambda(iteration, max_iter, lambda_final=0.05,  start_frac=0.25)
+    # lambda_axes = 0.0
+    lambda_axes = 0.01 # 0.01
+    # lambda_axes = gaussian_lambda(iteration, max_iter, lambda_peak = 0.005, peak_frac = 0.5, width = 0.3)
+    # lambda_axes  = linear_lambda(iteration, max_iter, lambda_final=0.05,  start_frac=0.25)
     # lambda_axes  = step_lambda(iteration, max_iter, lambda_final=0.01,  start_frac=0.25)
 
     axes_margins = {
@@ -185,21 +189,24 @@ def evaluate_group_gpu(flat_params, K, centers, sampled_positions_list,
         moved_centroids, case_centroids, case_axes, transforms_list, axes_margins
     )
 
-    # lambda_ivd = 0.001 # 0.001 , 0.0005
-    lambda_ivd   = linear_lambda(iteration, max_iter, lambda_final=0.05, start_frac=0.25)
+    # lambda_ivd = 0.0
+    lambda_ivd = 0.001 # 0.001 , 0.0005
+    # lambda_ivd = gaussian_lambda(iteration, max_iter, lambda_peak = 0.0005, peak_frac = 0.5, width = 0.3)
+    # lambda_ivd   = linear_lambda(iteration, max_iter, lambda_final=0.002, start_frac=0.25)
     # lambda_ivd   = step_lambda(iteration, max_iter, lambda_final=0.001, start_frac=0.25)
     # print("lambda ivd: ", lambda_ivd)
     ivd_loss, ivd_metrics = compute_ivd_collision_loss(pairings, transforms_list, case_names)
     
-    lambda_facet = 0.000
-    facet_loss, facet_metrics = compute_facet_collision_loss(facet_pairings, transforms_list, case_names)
+    # lambda_facet = 0.000
+    # facet_loss = 0.0
+    # # facet_loss, facet_metrics = compute_facet_collision_loss(facet_pairings, transforms_list, case_names)
+
 
     sim_weight = 1.0
     total_loss = (
         sim_weight * -float(mean_sim) + 
         (lambda_axes * axes_penalty) +
-        (lambda_ivd * ivd_loss) +
-        (lambda_facet * facet_loss)
+        (lambda_ivd * ivd_loss)
     )
 
     return (
@@ -207,7 +214,6 @@ def evaluate_group_gpu(flat_params, K, centers, sampled_positions_list,
         float(mean_sim * sim_weight),
         float(axes_penalty * lambda_axes),
         float(ivd_loss * lambda_ivd),
-        float(facet_loss * lambda_facet),
         ivd_metrics
     )
 
@@ -257,7 +263,7 @@ def run_single_registration(fixed_file, cases_dir, mesh_dir, output_dir, case_na
         mask = moving_tensor > 0
         ct_mask_indices = torch.stack(torch.where(mask), dim=-1)
         num_vox = ct_mask_indices.shape[0]
-        samples_count = min(5000, num_vox)
+        samples_count = min(6000, num_vox)
         
         if samples_count == 0:
             raise RuntimeError(f"No positive voxels found for case {case}")
@@ -374,7 +380,7 @@ def run_single_registration(fixed_file, cases_dir, mesh_dir, output_dir, case_na
         iteration = es.countiter
         
         for sol in solutions:
-            val, mean_sim, axes_pen, ivd_loss, facet_loss, _ = partial_eval(
+            val, mean_sim, axes_pen, ivd_loss, _ = partial_eval(
                 sol,
                 iteration = iteration)
             values.append(val)
@@ -384,7 +390,6 @@ def run_single_registration(fixed_file, cases_dir, mesh_dir, output_dir, case_na
                 mean_sim_history.append(mean_sim)
                 axes_penalty_history.append(axes_pen)
                 ivd_loss_history.append(ivd_loss)
-                facet_loss_history.append(facet_loss)
         
         es.tell(solutions, values)
     
@@ -419,8 +424,7 @@ def run_single_registration(fixed_file, cases_dir, mesh_dir, output_dir, case_na
             'loss': loss_history,
             'mean_sim': mean_sim_history,
             'axes_penalty': axes_penalty_history,
-            'ivd_loss': ivd_loss_history,
-            'facet_loss': facet_loss_history
+            'ivd_loss': ivd_loss_history
         }
     
     return tre_before, tre_after, runtime, success, per_vertebra_success, metrics_dict
@@ -537,14 +541,12 @@ if __name__ == "__main__":
                 mean_sim_arr = -1 * np.array(metrics_dict['mean_sim'])
                 axes_penalty_arr = np.array(metrics_dict['axes_penalty'])
                 ivd_loss_arr = np.array(metrics_dict['ivd_loss'])
-                facet_loss_arr = np.array(metrics_dict['facet_loss'])
                 loss_arr = np.array(metrics_dict['loss'])
                 
                 plt.figure(figsize=(10, 6))
                 plt.plot(np.where(mean_sim_arr != 0)[0], mean_sim_arr[mean_sim_arr != 0], 'o', label='Mean Similarity', linestyle='None')
                 plt.plot(np.where(axes_penalty_arr != 0)[0], axes_penalty_arr[axes_penalty_arr != 0], 's', label='Axes Penalty', linestyle='None')
                 plt.plot(np.where(ivd_loss_arr != 0)[0], ivd_loss_arr[ivd_loss_arr != 0], '^', label='IVD Spacing Loss', linestyle='None')
-                plt.plot(np.where(facet_loss_arr != 0)[0], facet_loss_arr[facet_loss_arr != 0], 'v', label='Facet Loss', linestyle='None')
                 plt.plot(np.where(loss_arr != 0)[0], loss_arr[loss_arr != 0], '.', label='Total Loss', linestyle='None')
                 
                 plt.xlabel('CMA Evaluation Step')
