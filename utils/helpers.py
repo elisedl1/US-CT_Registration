@@ -361,7 +361,16 @@ def compute_inter_vertebral_displacement_penalty(moved_centroids, case_centroids
 #     return penalty / float(K - 1)
 
 
+def gaussian_lambda(iteration, max_iter, lambda_peak=0.05, peak_frac=0.5, width=0.3):
 
+    t = iteration / max_iter
+    peak_t = peak_frac
+    
+    # Gaussian formula
+    exponent = -((t - peak_t) ** 2) / (2 * width ** 2)
+    lambda_val = lambda_peak * np.exp(exponent)
+    
+    return lambda_val
 
 def sigmoid_ramp(iteration, max_iter, center=0.8, sharpness=10):
     # constraints are half strength at 40% of run 
