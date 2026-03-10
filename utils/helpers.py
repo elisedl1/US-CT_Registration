@@ -156,7 +156,7 @@ def compute_ivd_collision_loss(pairings, transforms_list, case_names):
 
 
         # LOSS COMPONENT 3a: PRESERVE MIN SPACING (SOFT)
-        min_allowed = 0.6 * initial_distances  # 40% compression cap (physio-safe)
+        min_allowed = 0.7 * initial_distances  # 30% compression cap (physio-safe)
 
         violations = min_allowed - current_distances
         violations = np.maximum(0, violations)
@@ -169,7 +169,7 @@ def compute_ivd_collision_loss(pairings, transforms_list, case_names):
         current_mean = np.mean(current_distances)
         
         # tolerance
-        tolerance = 3.0  # mm - allows curvature/natural compression
+        tolerance = 2.0  # mm - allows curvature/natural compression
         mean_deviation = abs(current_mean - initial_mean) - tolerance
         
         if mean_deviation > 0:
