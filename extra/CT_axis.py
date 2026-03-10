@@ -18,5 +18,5 @@ def compute_ct_axes(ct_file):
     return LM_axis, AP_axis, SI_axis
 
 
-print(compute_ct_axes("/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/CT_segmentations/original/CT_L4.nrrd"))
-print(compute_ct_axes("/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/CT_segmentations/intra1_seg/L4/CT_L4.nrrd"))
+# print(compute_ct_axes("/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/CT_segmentations/original/CT_L4.nrrd"))
+# print(compute_ct_axes("/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/CT_segmentations/intra1_seg/L4/CT_L4.nrrd"))

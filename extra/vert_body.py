@@ -32,24 +32,27 @@ def get_body(ct_files, output_dir):
         img_cropped = crop_above_centroid_voxel(img, centroid)
         
         # Save the cropped image
-        filename = Path(ct_file).name
-        output_path = Path(output_dir) / filename
+        filename = Path(ct_file).stem  # Get filename without extension
+        extension = Path(ct_file).suffix  # Get extension (.nrrd)
+        new_filename = f"{filename}_body{extension}"
+        output_path = Path(output_dir) / new_filename
         sitk.WriteImage(img_cropped, str(output_path))
         
         cropped_images.append(img_cropped)
+    
     
     return cropped_images
 
 
 if __name__ == "__main__":
     CT_files = [
-      "/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/CT_segmentations/cropped/sofa1/CT_L2.nrrd",
-       "/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/CT_segmentations/cropped/sofa1/CT_L1.nrrd",
-        "/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/CT_segmentations/cropped/sofa1/CT_L3.nrrd",
-      "/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/CT_segmentations/cropped/sofa1/CT_L4.nrrd"
+      "/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/CT_segmentations/cropped/sofa6/CT_L2.nrrd",
+       "/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/CT_segmentations/cropped/sofa6/CT_L1.nrrd",
+        "/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/CT_segmentations/cropped/sofa6/CT_L3.nrrd",
+      "/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/CT_segmentations/cropped/sofa6/CT_L4.nrrd"
     ]
 
-    output_dir = "/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/CT_segmentations"
+    output_dir = "/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/CT_segmentations/cropped/sofa6"
     
     cropped = get_body(CT_files, output_dir)
     
