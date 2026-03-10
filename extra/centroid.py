@@ -28,7 +28,7 @@ def compute_centroid(nrrd_path):
 # path = "/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/CT_segmentations/original/CT_seg_combined.nrrd"
 
 
-path = "/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/CT_segmentations/original/CT_L4.nrrd"
+# path = "/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/CT_segmentations/original/CT_L4.nrrd"
 
-print(compute_centroid(path))
+# print(compute_centroid(path))
 

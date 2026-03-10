@@ -15,7 +15,7 @@ from collections import defaultdict
 from enum import Enum
 # imports from my files
 from utils.file_parser import SlicerJsonTagParser, PyNrrdParser
-from utils.helpers import sitk_euler_to_matrix,step_lambda,linear_lambda, sigmoid_ramp, compute_inter_vertebral_displacement_penalty, compute_ivd_collision_loss, compute_facet_collision_loss
+from utils.helpers import sitk_euler_to_matrix,step_lambda,linear_lambda, sigmoid_ramp, gaussian_lambda, compute_inter_vertebral_displacement_penalty, compute_ivd_collision_loss, compute_facet_collision_loss
 from utils.similarity import IntensitySimilarity
 from extra.centroid import compute_centroid
 from extra.CT_axis import compute_ct_axes
@@ -31,7 +31,7 @@ class ExperimentType(Enum):
 
 
 # CHANGE THIS TO SELECT EXPERIMENT
-EXPERIMENT = ExperimentType.MISSING_DATA
+EXPERIMENT = ExperimentType.NORMAL
 SUCCESS_THRESH_MM = 2.0
 
 
@@ -39,22 +39,22 @@ def get_experiment_settings(exp_type):
     """define experiment-specific settings"""
     if exp_type == ExperimentType.NORMAL:
         return {
-            "us_files": ["US_full_L2_L3_partial.nrrd"], # can change this to partial data
-            "perturb": False,
+            "us_files": ["US_complete_cal.nrrd"], # can change this to partial data, "US_missing_combined.nrrd"
+            "perturb": True,
             "n_runs": 1
         }
     
     if exp_type == ExperimentType.FULL_SWEEP:
         return {
-            "us_files": ["US_complete_cal.nrrd"],
-            "perturb": False,
-            "n_runs": 30
+            "us_files": ["US_full_L3_dropoutref_cal.nrrd"],
+            "perturb": True,
+            "n_runs": 10
         }
     
     if exp_type == ExperimentType.MISSING_DATA:
         return {
-            "us_files": ["US_full_L3_dropoutref_cal.nrrd"], # ["US_full_L2_L3_partial.nrrd"]
-            "perturb": True,
+            "us_files": ["US_full_L3_dropoutref_cal.nrrd"], # ["US_missing_combined.nrrd"]
+            "perturb": False,
             "n_runs": 30
         }
     
@@ -63,6 +63,7 @@ def get_experiment_settings(exp_type):
             "us_files": [
                 "US_complete_cal.nrrd",
                 "US_full_L3_dropoutref_cal.nrrd"
+                # "US_missing_combined.nrrd"
             ],
             "perturb": True,
             "n_runs": 30
@@ -126,10 +127,10 @@ def evaluate_group_gpu(flat_params, K, centers, sampled_positions_list,
                        device='cuda', profile=False):
 
     total_sim = 0.0
+    num_valid_cases = 0
     transforms_params = []
     moved_centroids = []
     transforms_list = []
-
 
 
 
@@ -155,44 +156,61 @@ def evaluate_group_gpu(flat_params, K, centers, sampled_positions_list,
         moving_vals = fixed_parser.sample_at_physical_points_gpu(moved_positions)
         moving_intensities = moving_vals.float()
 
-        sim = torch.mean(moving_intensities)
-        total_sim += sim
+        # adaptive loss: use points where US data exists
+        valid_mask = moving_intensities > 0
+        n_valid = valid_mask.sum().item()
         
+        if n_valid > 0:
+            # Only compute similarity on valid US data points
+            sim = torch.mean(moving_intensities[valid_mask])
+            total_sim += sim
+            num_valid_cases += 1
+
+        # sim = torch.mean(moving_intensities) # original mean
+        # total_sim += sim
+        
+        # move centroids
         ct_centroid = torch.tensor(case_centroids[k], device=device, dtype=torch.float32)
         moved_centroid = torch.tensor(tx_inv.TransformPoint(ct_centroid.cpu().numpy().tolist()), device=device)
         moved_centroids.append(moved_centroid.cpu().numpy())
 
-    mean_sim = total_sim / float(K)
+
+    mean_sim = (total_sim / float(K)) # original computation
+    # mean_sim = (total_sim / float(num_valid_cases)) ** 1.5 # was ** 2
 
 
     # CONSTRAINTS
-    # w = sigmoid_ramp(iteration, max_iter, center=0.4, sharpness=10)
-
+    # lambda_axes = 0.0
     lambda_axes = 0.01 # 0.01
-    # lambda_axes  = linear_lambda(iteration, max_iter, lambda_final=0.05,  start_frac=0.25)
+    # lambda_axes = gaussian_lambda(iteration, max_iter, lambda_peak = 0.005, peak_frac = 0.5, width = 0.3)
+    # lambda_axes  = linear_lambda(iteration, max_iter, lambda_final=0.01,  start_frac=0.25)
     # lambda_axes  = step_lambda(iteration, max_iter, lambda_final=0.01,  start_frac=0.25)
 
     axes_margins = {
         'LM': 2.0,
         'AP': 2.0,
-        'SI': 5.0,
-        'LM_rot': np.deg2rad(15),
-        'AP_rot': np.deg2rad(6),
-        'SI_rot': np.deg2rad(2)
+        'SI': 2.0, # was 5, way too high
+        'LM_rot': np.deg2rad(10), # 15, 10
+        'AP_rot': np.deg2rad(6), # 6
+        'SI_rot': np.deg2rad(2) # 2
     }
 
     axes_penalty = compute_inter_vertebral_displacement_penalty(
         moved_centroids, case_centroids, case_axes, transforms_list, axes_margins
     )
 
+    # lambda_ivd = 0.0
     lambda_ivd = 0.001 # 0.001 , 0.0005
-    # lambda_ivd   = linear_lambda(iteration, max_iter, lambda_final=0.05, start_frac=0.25)
+    # lambda_ivd = gaussian_lambda(iteration, max_iter, lambda_peak = 0.0005, peak_frac = 0.5, width = 0.3)
+    # lambda_ivd   = linear_lambda(iteration, max_iter, lambda_final=0.002, start_frac=0.25)
     # lambda_ivd   = step_lambda(iteration, max_iter, lambda_final=0.001, start_frac=0.25)
     # print("lambda ivd: ", lambda_ivd)
     ivd_loss, ivd_metrics = compute_ivd_collision_loss(pairings, transforms_list, case_names)
     
-    lambda_facet = 0.000
+    lambda_facet = 0.0
+    # lambda_facet = 0.001
     facet_loss, facet_metrics = compute_facet_collision_loss(facet_pairings, transforms_list, case_names)
+    # facet_loss = 0.0
 
     sim_weight = 1.0
     total_loss = (
@@ -227,7 +245,7 @@ def run_single_registration(fixed_file, cases_dir, mesh_dir, output_dir, case_na
     # PERTURBATION
     if apply_perturbation:
         rot = np.deg2rad(rng.uniform(-10.0, 10.0, size=3))
-        trans = rng.uniform(-5.0, 5.0, size=3)
+        trans = rng.uniform(-10.0, 10.0, size=3)
         global_perturbation = np.concatenate([rot, trans])
         print(f"\nApplied random perturbation (seed={rng_seed}):")
         print(f"  Rotation (deg): {np.rad2deg(global_perturbation[:3])}")
@@ -257,7 +275,7 @@ def run_single_registration(fixed_file, cases_dir, mesh_dir, output_dir, case_na
         mask = moving_tensor > 0
         ct_mask_indices = torch.stack(torch.where(mask), dim=-1)
         num_vox = ct_mask_indices.shape[0]
-        samples_count = min(5000, num_vox)
+        samples_count = min(6000, num_vox)
         
         if samples_count == 0:
             raise RuntimeError(f"No positive voxels found for case {case}")
@@ -276,8 +294,8 @@ def run_single_registration(fixed_file, cases_dir, mesh_dir, output_dir, case_na
         centers.append(center)
         
         # landmarks
-        target_file = f"/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans/intra1/landmarks/US_{case}_landmarks.mrk.json"
-        source_file = f"/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans/intra1/landmarks/CT_{case}_landmarks_intra.mrk.json"
+        target_file = f"/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans/sofa6/landmarks/US_{case}_landmarks.mrk.json"
+        source_file = f"/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans/sofa6/landmarks/CT_{case}_landmarks_intra.mrk.json"
         
         try:
             fixed_lm_parser = SlicerJsonTagParser(target_file)
@@ -320,11 +338,11 @@ def run_single_registration(fixed_file, cases_dir, mesh_dir, output_dir, case_na
     
     popsize = 80 # was 80
     parents = 20
-    lower_per = [-0.4, -0.4, -0.4, -8, -8, -8] # first three are rotation (rad), then translation
-    upper_per = [0.4, 0.4, 0.4, 8, 8, 8] # was all 5 and -5
+    lower_per = [-0.4, -0.4, -0.4, -10, -10, -10] # first three are rotation (rad), then translation WAS 8 BEFORE
+    upper_per = [0.4, 0.4, 0.4, 10, 10, 10] # was 0.4
     lower = lower_per * K
     upper = upper_per * K
-    max_iter = 100 # was 80, 200 didnt seem to do anything via the plot
+    max_iter = 120 # was 120, 200 didnt seem to do anything via the plot
 
 
     partial_eval = partial(
@@ -357,6 +375,7 @@ def run_single_registration(fixed_file, cases_dir, mesh_dir, output_dir, case_na
             'verb_disp': 0,  
             'maxiter': max_iter, # was 80
             'tolfun': 1e-5,
+            'seed': 42
         }
     )
 
@@ -419,8 +438,8 @@ def run_single_registration(fixed_file, cases_dir, mesh_dir, output_dir, case_na
             'loss': loss_history,
             'mean_sim': mean_sim_history,
             'axes_penalty': axes_penalty_history,
-            'ivd_loss': ivd_loss_history,
-            'facet_loss': facet_loss_history
+            'facet_loss': facet_loss_history,
+            'ivd_loss': ivd_loss_history
         }
     
     return tre_before, tre_after, runtime, success, per_vertebra_success, metrics_dict
@@ -437,9 +456,9 @@ if __name__ == "__main__":
     warnings.filterwarnings('ignore', message='.*NoneType.*check_attribute.*')
     
     # paths
-    mesh_dir = '/usr/local/data/elise/pig_data/pig2/Registration/cropped/intra1'
-    cases_dir = '/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans/intra1/Cases'
-    output_dir = '/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans/intra1/output_python_cma_group_allcases'
+    mesh_dir = '/usr/local/data/elise/pig_data/pig2/Registration/cropped/sofa6'
+    cases_dir = '/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans/sofa6/Cases'
+    output_dir = '/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans/sofa6/output_python_cma_group_allcases'
     os.makedirs(output_dir, exist_ok=True)
     
     # get case names
@@ -544,9 +563,10 @@ if __name__ == "__main__":
                 plt.plot(np.where(mean_sim_arr != 0)[0], mean_sim_arr[mean_sim_arr != 0], 'o', label='Mean Similarity', linestyle='None')
                 plt.plot(np.where(axes_penalty_arr != 0)[0], axes_penalty_arr[axes_penalty_arr != 0], 's', label='Axes Penalty', linestyle='None')
                 plt.plot(np.where(ivd_loss_arr != 0)[0], ivd_loss_arr[ivd_loss_arr != 0], '^', label='IVD Spacing Loss', linestyle='None')
-                plt.plot(np.where(facet_loss_arr != 0)[0], facet_loss_arr[facet_loss_arr != 0], 'v', label='Facet Loss', linestyle='None')
                 plt.plot(np.where(loss_arr != 0)[0], loss_arr[loss_arr != 0], '.', label='Total Loss', linestyle='None')
-                
+                plt.plot(np.where(facet_loss_arr != 0)[0], facet_loss_arr[facet_loss_arr != 0], 'v', label='Facet Loss', linestyle='None')
+
+
                 plt.xlabel('CMA Evaluation Step')
                 plt.ylabel('Value')
                 plt.title('CMA Optimization Metrics per Evaluation')
