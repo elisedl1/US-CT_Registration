@@ -5,6 +5,31 @@ import numpy as np
 from scipy.fft import fftn, ifftn, fftshift
 from scipy.ndimage import gaussian_filter
 import SimpleITK as sitk
+import nrrd
+from scipy.ndimage import gaussian_filter, white_tophat, grey_dilation
+from skimage import exposure
+import os
+import sys
+
+def preprocess_US(input_path, method='tophat', sigma=1.0, size=5):
+    
+    # read in image, gaussian smooth
+    data, header = nrrd.read(input_path)
+    smoothed_data = gaussian_filter(data, sigma=sigma)
+
+    if method == 'none':
+        return smoothed_data, header
+    
+    normalized = smoothed_data
+    
+    # top-hat transform highlights bright features
+    enhanced = np.zeros_like(normalized)
+    for i in range(data.shape[0]):
+        enhanced[i] = white_tophat(normalized[i], size=size)
+    enhanced = normalized + enhanced
+    enhanced = np.clip(enhanced, 0, 1)  
+    
+    return enhanced, header
 
 
 def compute_facet_collision_loss(pairings, transforms_list, case_names):

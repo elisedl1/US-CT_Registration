@@ -15,11 +15,12 @@ from collections import defaultdict
 from enum import Enum
 # imports from my files
 from utils.file_parser import SlicerJsonTagParser, PyNrrdParser
-from utils.helpers import sitk_euler_to_matrix,step_lambda,linear_lambda, sigmoid_ramp, gaussian_lambda, compute_inter_vertebral_displacement_penalty, compute_ivd_collision_loss, compute_facet_collision_loss
+from utils.helpers import sitk_euler_to_matrix,step_lambda,linear_lambda, sigmoid_ramp, gaussian_lambda, compute_inter_vertebral_displacement_penalty, compute_ivd_collision_loss, compute_facet_collision_loss, preprocess_US
 from utils.similarity import IntensitySimilarity
 from extra.centroid import compute_centroid
 from extra.CT_axis import compute_ct_axes
 from extra.IVD_points import compute_adjacent_vertebra_pairings
+import nrrd
 
 
 # EXPERIMENT CONFIGURATION
@@ -181,9 +182,9 @@ def evaluate_group_gpu(flat_params, K, centers, sampled_positions_list,
 
     # CONSTRAINTS
     # lambda_axes = 0.0
-    lambda_axes = 0.01 # 0.01
+    # lambda_axes = 0.01 # 0.01
     # lambda_axes = gaussian_lambda(iteration, max_iter, lambda_peak = 0.005, peak_frac = 0.5, width = 0.3)
-    # lambda_axes  = linear_lambda(iteration, max_iter, lambda_final=0.01,  start_frac=0.25)
+    lambda_axes  = linear_lambda(iteration, max_iter, lambda_final=0.01,  start_frac=0.25)
     # lambda_axes  = step_lambda(iteration, max_iter, lambda_final=0.01,  start_frac=0.25)
 
     axes_margins = {
@@ -200,9 +201,9 @@ def evaluate_group_gpu(flat_params, K, centers, sampled_positions_list,
     )
 
     # lambda_ivd = 0.0
-    lambda_ivd = 0.001 # 0.001 , 0.0005
+    # lambda_ivd = 0.001 # 0.001 , 0.0005
     # lambda_ivd = gaussian_lambda(iteration, max_iter, lambda_peak = 0.0005, peak_frac = 0.5, width = 0.3)
-    # lambda_ivd   = linear_lambda(iteration, max_iter, lambda_final=0.002, start_frac=0.25)
+    lambda_ivd   = linear_lambda(iteration, max_iter, lambda_final=0.002, start_frac=0.25)
     # lambda_ivd   = step_lambda(iteration, max_iter, lambda_final=0.001, start_frac=0.25)
     # print("lambda ivd: ", lambda_ivd)
     ivd_loss, ivd_metrics = compute_ivd_collision_loss(pairings, transforms_list, case_names)
@@ -255,7 +256,20 @@ def run_single_registration(fixed_file, cases_dir, mesh_dir, output_dir, case_na
     
 
     # LOAD DATA
-    fixed_parser = PyNrrdParser(fixed_file)
+    # fixed_parser = PyNrrdParser(fixed_file) # original, non preprocessed
+    
+    print("Preprocessing US image...")
+    preprocess_start = time.time()
+    enhanced_us_data, us_header = preprocess_US(fixed_file, method='tophat', sigma=1.0, size=5)
+    preprocess_time = time.time() - preprocess_start
+    print(f"  Preprocessing completed in {preprocess_time:.2f}s")
+
+    # Save preprocessed US temporarily
+    temp_us_file = os.path.join(output_dir, 'temp_preprocessed_us.nrrd')
+    nrrd.write(temp_us_file, enhanced_us_data, us_header)
+
+    # Use preprocessed US for registration
+    fixed_parser = PyNrrdParser(temp_us_file)
     
     moving_parsers = []
     sampled_positions_list = []
@@ -441,6 +455,10 @@ def run_single_registration(fixed_file, cases_dir, mesh_dir, output_dir, case_na
             'facet_loss': facet_loss_history,
             'ivd_loss': ivd_loss_history
         }
+
+    # DELETE TEMP US FILES
+    if os.path.exists(temp_us_file):
+        os.remove(temp_us_file)
     
     return tre_before, tre_after, runtime, success, per_vertebra_success, metrics_dict
 
