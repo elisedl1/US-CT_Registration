@@ -56,6 +56,7 @@ def extract_posterior_surface(mask_file, ct_file_for_axes, reference_file=None):
     
     # anatomical axes from CT
     LM_axis, AP_axis, SI_axis = compute_ct_axes(ct_file_for_axes)
+    AP_axis, SI_axis = SI_axis, AP_axis # REMOVE THIS FOR ORIGINAL PIG DATA
     
     spacing = np.array(mask.GetSpacing())
     origin = np.array(mask.GetOrigin())
@@ -167,10 +168,22 @@ def plot_comparison(mask_file, surface_image, reference_file=None, slice_idx=Non
 
 
 if __name__ == "__main__":
+    # # File paths
+    # mask_file = "/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/CT_segmentations/original/CT_seg_combined.nrrd"
+    # ct_file_for_axes = mask_file  # using same file to get axis directions
+    # reference_file = "/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/bt_stitch.nrrd"
+    # print("Extracting posterior surface...")
+    # surface = extract_posterior_surface(mask_file, ct_file_for_axes, reference_file)
+    
+    # # save the result
+    # output_file = mask_file.replace('.nrrd', '_posterior_surface.nrrd')
+    # sitk.WriteImage(surface, output_file)
+    # print(f"Saved posterior surface to: {output_file}")
+
     # File paths
-    mask_file = "/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/CT_segmentations/original/CT_seg_combined.nrrd"
+    mask_file = "/Users/elise/elisedonszelmann-lund/Masters_Utils/cava_data/processed/Case1/CT/CT_L5.nrrd"
     ct_file_for_axes = mask_file  # using same file to get axis directions
-    reference_file = "/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/bt_stitch.nrrd"
+    reference_file = "/Users/elise/elisedonszelmann-lund/Masters_Utils/cava_data/processed/Case1/CT/CT_L5.nrrd"
     print("Extracting posterior surface...")
     surface = extract_posterior_surface(mask_file, ct_file_for_axes, reference_file)
     
@@ -179,5 +192,3 @@ if __name__ == "__main__":
     sitk.WriteImage(surface, output_file)
     print(f"Saved posterior surface to: {output_file}")
     
-    # plot comparison
-    # plot_comparison(mask_file, surface, reference_file)
