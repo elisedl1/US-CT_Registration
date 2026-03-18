@@ -249,10 +249,10 @@ With random perturbations (±8° rotation, ±8mm translation):
 
 | Method | Mean TRE (mm) | Runtime | Manual Steps | Handles Missing Data |
 |--------|---------------|---------|--------------|----------------------|
-| **Ours** | **1.65 ± 0.42** | **~40s** | ✅ None | ✅ Yes |
-| Nagpal et al. [2014] | 1.37 | ~180s | ❌ Manual disc points | ❌ No |
-| Gill et al. [2012] | 0.62-2.26 | ~2580s | ❌ Complex biomech model | ❌ No |
-| Azampour et al. [2024] | 3.67 | ~0.05s | ✅ None | ❌ No |
+| **Ours** | **1.65 ± 0.42** | **~40s** | None | Yes |
+| Nagpal et al. [2014] | 1.37 | ~180s | Manual disc points | No |
+| Gill et al. [2012] | 0.62-2.26 | ~2580s | Complex biomech model | No |
+| Azampour et al. [2024] | 3.67 | ~0.05s | None | No |
 
 ## Preprocessing Scripts
 
