@@ -1,21 +1,13 @@
 """
-plot_shadow_elongation_check.py
-
-Diagnostic: for each bone candidate blob apply two filters:
-  1. Elongation    — blob must be sufficiently line-like (PCA axis ratio)
-  2. Shadow check  — only run on elongated blobs; pixels in a fixed window
-                     immediately below the blob must be near-zero
-
-Both must pass for a blob to be kept as a transverse process candidate.
-
-Usage
------
   python plot_shadow_elongation_check.py
   python plot_shadow_elongation_check.py --z 42
   python plot_shadow_elongation_check.py --z 42 --out debug.png
+  python plot_shadow_elongation_check.py --z 42 --save-volume filtered.nrrd
+  python plot_shadow_elongation_check.py --z 42 --save-volume ""   # skip volume
 """
 
 import argparse
+import os
 import numpy as np
 import nrrd
 import matplotlib.pyplot as plt
@@ -45,18 +37,11 @@ def load_slice(path, z, flip=True):
 
 
 def blob_pca(dep_idx, lat_idx):
-    """
-    PCA on blob pixel coordinates.
-    Returns (elongation_ratio, angle_deg, centre, half_axes)
-      elongation_ratio : eigenvalue_major / eigenvalue_minor
-      angle_deg        : orientation of major axis in degrees from horizontal
-      centre           : (col, row) centroid
-      half_axes        : (major, minor) half-lengths = 2*std for plotting
-    """
+
     coords = np.stack([lat_idx, dep_idx], axis=1).astype(float)  # (N,2) col,row
     centre = coords.mean(axis=0)
     coords -= centre
-    cov             = np.cov(coords.T)
+    cov              = np.cov(coords.T)
     eigvals, eigvecs = np.linalg.eigh(cov)   # ascending order
     eigvals          = np.abs(eigvals)
     if eigvals[0] < 1e-6:
@@ -68,45 +53,22 @@ def blob_pca(dep_idx, lat_idx):
     return ratio, angle_deg, centre, half_axes
 
 
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--volume",           default=DEFAULT_VOLUME)
-    parser.add_argument("--candidates",       default=DEFAULT_CANDIDATES)
-    parser.add_argument("--z",                type=int,   default=None)
-    parser.add_argument("--min-elongation",   type=float, default=MIN_ELONGATION)
-    parser.add_argument("--near-zero-thresh", type=float, default=NEAR_ZERO_THRESH)
-    parser.add_argument("--shadow-frac",      type=float, default=SHADOW_FRAC_NEEDED)
-    parser.add_argument("--shadow-rows",      type=int,   default=SHADOW_ROWS)
-    parser.add_argument("--out",              default=None)
-    args = parser.parse_args()
+def filter_slice(img_sl, cand_sl, near_zero_thresh, shadow_frac_needed,
+                 shadow_rows, min_elongation):
+    """
+    Apply elongation + shadow filter to one slice
 
-    near_zero_thresh   = args.near_zero_thresh
-    shadow_frac_needed = args.shadow_frac
-    shadow_rows        = args.shadow_rows
-    min_elongation     = args.min_elongation
-
-    vol_full, _ = nrrd.read(args.volume)
-    n_z  = vol_full.shape[2]
-    z    = args.z if args.z is not None else n_z // 2
-
-    img_sl  = load_slice(args.volume,     z)
-    cand_sl = load_slice(args.candidates, z)
-
+    """
+    n_rows    = img_sl.shape[0]
     slice_max = img_sl.max()
     thresh    = near_zero_thresh * slice_max
 
-    vmax     = img_sl.max()
-    img_norm = img_sl / vmax if vmax > 0 else img_sl
-
-    n_rows, n_cols = img_sl.shape
-
     struct8    = generate_binary_structure(2, 2)
     labeled, n = label(cand_sl, structure=struct8)
-    print(f"Z={z}  blobs={n}  shape={img_sl.shape}")
-    print(f"  slice max={slice_max:.1f}  shadow thresh={thresh:.1f}")
 
-    # ── per-blob decisions ────────────────────────────────────────────────
-    blobs = {}
+    blobs    = {}
+    filtered = np.zeros_like(cand_sl, dtype=np.uint8)
+
     for blob_id in range(1, n + 1):
         dep_idx, lat_idx = np.where(labeled == blob_id)
 
@@ -115,7 +77,8 @@ def main():
                 elongated=False, shadow=False,
                 ratio=1.0, frac_dark=0.0,
                 deepest_row=int(dep_idx.max()),
-                cols_at_deepest=lat_idx,
+                col_min=int(lat_idx.min()),
+                col_max=int(lat_idx.max()),
                 centre=(float(lat_idx.mean()), float(dep_idx.mean())),
                 half_axes=(1.0, 1.0), angle_deg=0.0,
             )
@@ -125,17 +88,15 @@ def main():
         ratio, angle_deg, centre, half_axes = blob_pca(dep_idx, lat_idx)
         is_elongated = ratio >= min_elongation
 
-        # ── shadow check (only meaningful if elongated) ───────────────────
-        deepest_row     = int(dep_idx.max())
-        cols_at_deepest = lat_idx[dep_idx == deepest_row]
-        if len(cols_at_deepest) == 0:
-            cols_at_deepest = lat_idx
+        # ── shadow check ──────────────────────────────────────────────────
+        deepest_row = int(dep_idx.max())
+        col_min     = int(lat_idx.min())
+        col_max     = int(lat_idx.max()) + 1   
 
-        row_start   = deepest_row + 1
-        row_end     = min(row_start + shadow_rows, n_rows)
-        sample_rows = slice(row_start, row_end)
+        row_start = deepest_row + 1
+        row_end   = min(row_start + shadow_rows, n_rows)
 
-        region = img_sl[sample_rows, :][:, cols_at_deepest]
+        region = img_sl[row_start:row_end, col_min:col_max]
 
         if region.size == 0:
             frac_dark, has_shadow = 0.0, False
@@ -145,32 +106,153 @@ def main():
             frac_dark  = is_shadow.sum() / region.size
             has_shadow = frac_dark >= shadow_frac_needed
 
+        if is_elongated and has_shadow:
+            filtered[labeled == blob_id] = 1
+
         blobs[blob_id] = dict(
-            elongated       = is_elongated,
-            shadow          = has_shadow,
-            ratio           = ratio,
-            frac_dark       = frac_dark,
-            deepest_row     = deepest_row,
-            cols_at_deepest = cols_at_deepest,
-            centre          = centre,
-            half_axes       = half_axes,
-            angle_deg       = angle_deg,
+            elongated  = is_elongated,
+            shadow     = has_shadow,
+            ratio      = ratio,
+            frac_dark  = frac_dark,
+            deepest_row= deepest_row,
+            col_min    = col_min,
+            col_max    = col_max - 1,   # store inclusive for display
+            centre     = centre,
+            half_axes  = half_axes,
+            angle_deg  = angle_deg,
         )
 
+    return filtered, blobs
+
+
+def save_filtered_volume(vol_path, cand_path, out_path,
+                         near_zero_thresh, shadow_frac_needed,
+                         shadow_rows, min_elongation):
+    """
+    Run the elongation + shadow filter across every Z slice of the candidate
+    """
+    print(f"\nBuilding filtered volume over all Z slices …")
+    print(f"  volume     : {vol_path}")
+    print(f"  candidates : {cand_path}")
+
+    vol_raw,  _        = nrrd.read(vol_path)
+    cand_raw, cand_hdr = nrrd.read(cand_path)
+
+    # Normalise intensity to [0, 1] — same as the plotting path
+    vmin, vmax = float(vol_raw.min()), float(vol_raw.max())
+    vol_f = (vol_raw.astype(np.float32) - vmin) / (vmax - vmin + 1e-9)
+
+    n_z     = vol_f.shape[2]
+    out_vol = np.zeros(vol_f.shape, dtype=np.uint8)
+
+    for z in range(n_z):
+        if z % 20 == 0:
+            print(f"  {z}/{n_z}", end="\r", flush=True)
+
+        # Apply the same flip that load_slice uses so geometry is consistent
+        img_sl  = vol_f[:, :, z].astype(np.float32).T[::-1]
+        cand_sl = cand_raw[:, :, z].astype(np.float32).T[::-1]
+
+        filtered_sl, _ = filter_slice(
+            img_sl, cand_sl,
+            near_zero_thresh, shadow_frac_needed,
+            shadow_rows, min_elongation,
+        )
+
+        # Undo the flip before storing back into volume axes
+        out_vol[:, :, z] = filtered_sl[::-1].T
+
+    n_in  = int(cand_raw.astype(bool).sum())
+    n_out = int(out_vol.sum())
+    print(f"\n  kept voxels : {n_out} / {n_in}  ({100*n_out/max(n_in,1):.1f}%)")
+
+    out_hdr = cand_hdr.copy()
+    out_hdr["type"] = "unsigned char"
+    out_hdr.setdefault("encoding", "gzip")
+
+    print(f"  saving     : {out_path}")
+    nrrd.write(out_path, out_vol, out_hdr)
+    print("  done.")
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--volume",           default=DEFAULT_VOLUME)
+    parser.add_argument("--candidates",       default=DEFAULT_CANDIDATES)
+    parser.add_argument("--z",                type=int,   default=None)
+    parser.add_argument("--min-elongation",   type=float, default=MIN_ELONGATION)
+    parser.add_argument("--near-zero-thresh", type=float, default=NEAR_ZERO_THRESH)
+    parser.add_argument("--shadow-frac",      type=float, default=SHADOW_FRAC_NEEDED)
+    parser.add_argument("--shadow-rows",      type=int,   default=SHADOW_ROWS)
+    parser.add_argument("--out",              default=None,
+                        help="Save plot to this path instead of showing it")
+    parser.add_argument("--save-volume",      default=None,
+                        metavar="PATH",
+                        help="Save full filtered 3-D NRRD to this path. "
+                             "Defaults to <candidates_stem>_filtered.nrrd "
+                             "next to the candidates file. "
+                             "Pass empty string to skip.")
+    args = parser.parse_args()
+
+    near_zero_thresh   = args.near_zero_thresh
+    shadow_frac_needed = args.shadow_frac
+    shadow_rows        = args.shadow_rows
+    min_elongation     = args.min_elongation
+
+    # ── resolve save-volume path ──────────────────────────────────────────
+    # Default: <dir of candidates>/<stem>_filtered.nrrd
+    save_volume = args.save_volume
+    if save_volume is None:
+        cand_stem   = os.path.splitext(args.candidates)[0]
+        save_volume = cand_stem + "_filtered.nrrd"
+
+    # ── optional: build + save filtered volume across all Z ──────────────
+    if save_volume:
+        save_filtered_volume(
+            args.volume, args.candidates, save_volume,
+            near_zero_thresh, shadow_frac_needed,
+            shadow_rows, min_elongation,
+        )
+
+    # ── load the single diagnostic slice ─────────────────────────────────
+    vol_full, _ = nrrd.read(args.volume)
+    n_z  = vol_full.shape[2]
+    z    = args.z if args.z is not None else n_z // 2
+
+    img_sl  = load_slice(args.volume,     z)
+    cand_sl = load_slice(args.candidates, z)
+
+    slice_max = img_sl.max()
+    thresh    = near_zero_thresh * slice_max
+    vmax      = img_sl.max()
+    img_norm  = img_sl / vmax if vmax > 0 else img_sl
+    n_rows, _ = img_sl.shape
+
+    _, blobs = filter_slice(
+        img_sl, cand_sl,
+        near_zero_thresh, shadow_frac_needed,
+        shadow_rows, min_elongation,
+    )
+    n = len(blobs)
+
     # ── print table ───────────────────────────────────────────────────────
-    print(f"\n{'blob':>5} {'deepest':>8} {'n_px':>6} "
-          f"{'ratio':>7} {'elongated':>10} "
+    print(f"\nZ={z}  blobs={n}  shape={img_sl.shape}")
+    print(f"  slice max={slice_max:.1f}  shadow thresh={thresh:.1f}")
+    print(f"\n{'blob':>5} {'deepest':>8} {'ratio':>7} {'elongated':>10} "
           f"{'frac_dark':>10} {'shadow':>8} {'result':>8}")
     for blob_id, b in blobs.items():
-        dep_idx, _ = np.where(labeled == blob_id)
         kept = b['elongated'] and b['shadow']
-        print(f"{blob_id:>5} {b['deepest_row']:>8} {len(dep_idx):>6} "
+        print(f"{blob_id:>5} {b['deepest_row']:>8} "
               f"{b['ratio']:>7.1f} {str(b['elongated']):>10} "
               f"{b['frac_dark']:>10.0%} {str(b['shadow']):>8} "
               f"{'KEEP' if kept else 'REJECT':>8}")
 
     n_kept = sum(b['elongated'] and b['shadow'] for b in blobs.values())
     print(f"\n  kept={n_kept}  rejected={n - n_kept}")
+
+    # ── labeled mask needed for the display slice blob overlay ───────────
+    struct8    = generate_binary_structure(2, 2)
+    labeled, _ = label(cand_sl, structure=struct8)
 
     # ── plot: 3 panels ────────────────────────────────────────────────────
     fig, axes = plt.subplots(1, 3, figsize=(22, 7))
@@ -194,18 +276,17 @@ def main():
                   cmap="autumn", alpha=0.5, origin="upper")
 
         for blob_id, b in blobs.items():
-            col_c  = b['centre'][0]
-            row_c  = b['centre'][1]
-            col_min = int(b['cols_at_deepest'].min())
-            col_max = int(b['cols_at_deepest'].max())
-            a, bm  = b['half_axes']   # major, minor
-            angle  = b['angle_deg']
-            cos_a  = np.cos(np.radians(angle))
-            sin_a  = np.sin(np.radians(angle))
+            col_c   = b['centre'][0]
+            row_c   = b['centre'][1]
+            col_min = b['col_min']
+            col_max = b['col_max']
+            a, bm   = b['half_axes']
+            angle   = b['angle_deg']
+            cos_a   = np.cos(np.radians(angle))
+            sin_a   = np.sin(np.radians(angle))
 
             if panel == 0:
-                # PCA ellipse
-                color = "cyan" if b['elongated'] else "red"
+                color   = "cyan" if b['elongated'] else "red"
                 t       = np.linspace(0, 2 * np.pi, 60)
                 ell_col = col_c + a * np.cos(t) * cos_a - bm * np.sin(t) * sin_a
                 ell_row = row_c + a * np.cos(t) * sin_a + bm * np.sin(t) * cos_a
@@ -217,11 +298,10 @@ def main():
                         color=color, fontsize=6, ha="center", va="bottom")
 
             elif panel == 1:
-                # shadow sampling window — only draw for elongated blobs
                 if not b['elongated']:
                     continue
                 color      = "cyan" if b['shadow'] else "red"
-                col_center = int(b['cols_at_deepest'].mean())
+                col_center = (col_min + col_max) // 2
                 row_start  = b['deepest_row'] + 1
                 row_end    = min(row_start + shadow_rows, n_rows) - 1
                 ax.plot([col_min, col_max], [b['deepest_row'], b['deepest_row']],
@@ -235,7 +315,6 @@ def main():
                         color=color, fontsize=6, ha="center", va="top")
 
             else:
-                # final result
                 kept  = b['elongated'] and b['shadow']
                 color = "cyan" if kept else "red"
                 ax.plot(col_c, row_c, marker="+", color=color,
@@ -263,7 +342,7 @@ def main():
 
     if args.out:
         plt.savefig(args.out, dpi=150)
-        print(f"Saved: {args.out}")
+        print(f"Saved plot: {args.out}")
     else:
         plt.show()
 
