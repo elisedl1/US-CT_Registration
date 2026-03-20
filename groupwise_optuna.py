@@ -45,7 +45,7 @@ def get_experiment_settings(exp_type):
     """define experiment-specific settings"""
     if exp_type == ExperimentType.OPTUNA_TUNING:
         return {
-            "us_files": ["US_complete_cal.nrrd"],
+            "us_files": ["US_missing_combined.nrrd"],
             "perturb": True,
             "n_trials_per_optuna": 5,  # Number of registration runs per Optuna trial
             "n_optuna_trials": 50,      # Number of Optuna trials
@@ -295,8 +295,8 @@ def run_single_registration(fixed_file, cases_dir, mesh_dir, output_dir, case_na
         centers.append(center)
         
         # landmarks
-        target_file = f"/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans/sofa6/landmarks/US_{case}_landmarks.mrk.json"
-        source_file = f"/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans/sofa6/landmarks/CT_{case}_landmarks_intra.mrk.json"
+        target_file = f"/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans/sofa5/landmarks/US_{case}_landmarks.mrk.json"
+        source_file = f"/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans/sofa5/landmarks/CT_{case}_landmarks_intra.mrk.json"
         
         try:
             fixed_lm_parser = SlicerJsonTagParser(target_file)
@@ -709,9 +709,9 @@ if __name__ == "__main__":
     warnings.filterwarnings('ignore', message='.*NoneType.*check_attribute.*')
     
     # paths
-    mesh_dir = '/usr/local/data/elise/pig_data/pig2/Registration/cropped/sofa6'
-    cases_dir = '/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans/sofa6/Cases'
-    output_dir = '/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans/sofa6/output_python_cma_group_allcases'
+    mesh_dir = '/usr/local/data/elise/pig_data/pig2/Registration/cropped/sofa5'
+    cases_dir = '/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans/sofa5/Cases'
+    output_dir = '/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans/sofa5/output_python_cma_group_allcases'
     os.makedirs(output_dir, exist_ok=True)
     
     # get case names

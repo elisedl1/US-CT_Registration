@@ -42,12 +42,12 @@ def get_experiment_settings(exp_type):
         return {
             "us_files": ["US_complete_cal.nrrd"], # can change this to partial data, "US_missing_combined.nrrd"
             "perturb": True,
-            "n_runs": 1
+            "n_runs": 10
         }
     
     if exp_type == ExperimentType.FULL_SWEEP:
         return {
-            "us_files": ["US_full_L3_dropoutref_cal.nrrd"],
+            "us_files": ["US_complete_cal.nrrd"],
             "perturb": True,
             "n_runs": 10
         }
@@ -166,7 +166,6 @@ def evaluate_group_gpu(flat_params, K, centers, sampled_positions_list,
             sim = torch.mean(moving_intensities[valid_mask])
             total_sim += sim
             num_valid_cases += 1
-
         # sim = torch.mean(moving_intensities) # original mean
         # total_sim += sim
         
@@ -183,9 +182,9 @@ def evaluate_group_gpu(flat_params, K, centers, sampled_positions_list,
     # CONSTRAINTS
     # lambda_axes = 0.0
     # lambda_axes = 0.01 # 0.01
-    # lambda_axes = gaussian_lambda(iteration, max_iter, lambda_peak = 0.005, peak_frac = 0.5, width = 0.3)
     lambda_axes  = linear_lambda(iteration, max_iter, lambda_final=0.01,  start_frac=0.25)
-    # lambda_axes  = step_lambda(iteration, max_iter, lambda_final=0.01,  start_frac=0.25)
+    # lambda_axes  = linear_lambda(iteration, max_iter, lambda_final=0.0017,  start_frac=0.23)
+
 
     axes_margins = {
         'LM': 2.0,
@@ -202,10 +201,9 @@ def evaluate_group_gpu(flat_params, K, centers, sampled_positions_list,
 
     # lambda_ivd = 0.0
     # lambda_ivd = 0.001 # 0.001 , 0.0005
-    # lambda_ivd = gaussian_lambda(iteration, max_iter, lambda_peak = 0.0005, peak_frac = 0.5, width = 0.3)
     lambda_ivd   = linear_lambda(iteration, max_iter, lambda_final=0.002, start_frac=0.25)
-    # lambda_ivd   = step_lambda(iteration, max_iter, lambda_final=0.001, start_frac=0.25)
-    # print("lambda ivd: ", lambda_ivd)
+    # lambda_ivd   = linear_lambda(iteration, max_iter, lambda_final=0.00038, start_frac=0.39)
+
     ivd_loss, ivd_metrics = compute_ivd_collision_loss(pairings, transforms_list, case_names)
     
     lambda_facet = 0.0
@@ -246,7 +244,7 @@ def run_single_registration(fixed_file, cases_dir, mesh_dir, output_dir, case_na
     # PERTURBATION
     if apply_perturbation:
         rot = np.deg2rad(rng.uniform(-10.0, 10.0, size=3))
-        trans = rng.uniform(-10.0, 10.0, size=3)
+        trans = rng.uniform(-9.0, 9.0, size=3)
         global_perturbation = np.concatenate([rot, trans])
         print(f"\nApplied random perturbation (seed={rng_seed}):")
         print(f"  Rotation (deg): {np.rad2deg(global_perturbation[:3])}")
@@ -346,17 +344,17 @@ def run_single_registration(fixed_file, cases_dir, mesh_dir, output_dir, case_na
 
     # CMA OPTIMIZATION
     x0 = np.tile(global_perturbation, K)
-    sigma0 = 0.5
+    sigma0 = 0.25 # 0.5
     base_stds = [0.01, 0.01, 0.01, 0.5, 0.5, 0.5] # [0.01, 0.01, 0.01, 1.0, 1.0, 1.0]
     cma_stds = base_stds * K
     
-    popsize = 80 # was 80
+    popsize = 60 # was 80
     parents = 20
     lower_per = [-0.4, -0.4, -0.4, -10, -10, -10] # first three are rotation (rad), then translation WAS 8 BEFORE
     upper_per = [0.4, 0.4, 0.4, 10, 10, 10] # was 0.4
     lower = lower_per * K
     upper = upper_per * K
-    max_iter = 120 # was 120, 200 didnt seem to do anything via the plot
+    max_iter = 160 # was 120, 200 didnt seem to do anything via the plot
 
 
     partial_eval = partial(
