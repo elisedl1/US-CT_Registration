@@ -47,7 +47,7 @@ DEFAULT_BONE_OUT = _BASE + "US_complete_cal_bone_candidates.nrrd"
 # ──────────────────────────────────────────────────────────────────────────────
 PARAMS = dict(
     edge_threshold     = 0.1,  # fraction of per-slice max edge magnitude
-    min_island_area    = 40,    # px; blobs smaller than this are dropped
+    min_island_area    = 60,    # px; blobs smaller than this are dropped
     erosion_iterations = 2,
     dilation_iterations= 2,
 )
