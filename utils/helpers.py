@@ -9,9 +9,9 @@ from scipy.ndimage import gaussian_filter, white_tophat, grey_dilation,uniform_f
 import nrrd
 from localization.ase_filter import norm01, speckle_reduce, acoustic_shadow_energy
 
-def preprocess_US(input_path, method='tophat', sigma=1.0, size=5):
+def preprocess_US(input_path, ase, method='tophat', sigma=1.0, size=5):
     
-    # read in image, build mask from raw data before any processing
+    # binary US mask
     data, header = nrrd.read(input_path)
     us_mask = (data != 0).astype(np.uint8)
 
@@ -19,11 +19,11 @@ def preprocess_US(input_path, method='tophat', sigma=1.0, size=5):
     smoothed_data = gaussian_filter(data, sigma=sigma)
 
     if method == 'none':
-        return smoothed_data * us_mask, header, us_mask
-    
-    normalized = smoothed_data
+        print("returning smoothed only")
+        return smoothed_data * us_mask, header
     
     # top-hat transform highlights bright features
+    normalized = smoothed_data
     enhanced = np.zeros_like(normalized)
     for i in range(data.shape[0]):
         enhanced[i] = white_tophat(normalized[i], size=size)
@@ -32,6 +32,11 @@ def preprocess_US(input_path, method='tophat', sigma=1.0, size=5):
 
     # apply mask to zero out anything that was zero in the original
     enhanced = enhanced * us_mask
+
+    if ase == False:
+        print("returning tophat enhanced")
+        return normalized, header
+
 
     # ASE: per-slice speckle reduction + acoustic shadow enhancement
     vmin, vmax = float(enhanced.min()), float(enhanced.max())
@@ -48,6 +53,7 @@ def preprocess_US(input_path, method='tophat', sigma=1.0, size=5):
 
         ase_vol[:, :, z] = enhanced_sl[::-1].T
 
+    print("returning ASE filtered")
     return ase_vol, header
 
 

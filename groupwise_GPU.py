@@ -40,9 +40,9 @@ def get_experiment_settings(exp_type):
     """define experiment-specific settings"""
     if exp_type == ExperimentType.NORMAL:
         return {
-            "us_files": ["US_complete_cal.nrrd"], # can change this to partial data, "US_missing_combined.nrrd"
+            "us_files": ["US_full_L3_dropoutref_cal.nrrd"], # can change this to partial data, "US_missing_combined.nrrd"
             "perturb": True,
-            "n_runs": 10
+            "n_runs": 1
         }
     
     if exp_type == ExperimentType.FULL_SWEEP:
@@ -181,8 +181,8 @@ def evaluate_group_gpu(flat_params, K, centers, sampled_positions_list,
 
     # CONSTRAINTS
     # lambda_axes = 0.0
-    # lambda_axes = 0.01 # 0.01
-    lambda_axes  = linear_lambda(iteration, max_iter, lambda_final=0.01,  start_frac=0.25)
+    lambda_axes = 0.01 # 0.01
+    # lambda_axes  = linear_lambda(iteration, max_iter, lambda_final=0.01,  start_frac=0.25)
     # lambda_axes  = linear_lambda(iteration, max_iter, lambda_final=0.0017,  start_frac=0.23)
 
 
@@ -200,8 +200,8 @@ def evaluate_group_gpu(flat_params, K, centers, sampled_positions_list,
     )
 
     # lambda_ivd = 0.0
-    # lambda_ivd = 0.001 # 0.001 , 0.0005
-    lambda_ivd   = linear_lambda(iteration, max_iter, lambda_final=0.002, start_frac=0.25)
+    lambda_ivd = 0.001 # 0.001 , 0.0005
+    # lambda_ivd   = linear_lambda(iteration, max_iter, lambda_final=0.002, start_frac=0.25)
     # lambda_ivd   = linear_lambda(iteration, max_iter, lambda_final=0.00038, start_frac=0.39)
 
     ivd_loss, ivd_metrics = compute_ivd_collision_loss(pairings, transforms_list, case_names)
@@ -244,7 +244,7 @@ def run_single_registration(fixed_file, cases_dir, mesh_dir, output_dir, case_na
     # PERTURBATION
     if apply_perturbation:
         rot = np.deg2rad(rng.uniform(-10.0, 10.0, size=3))
-        trans = rng.uniform(-9.0, 9.0, size=3)
+        trans = rng.uniform(-10.0, 10.0, size=3)
         global_perturbation = np.concatenate([rot, trans])
         print(f"\nApplied random perturbation (seed={rng_seed}):")
         print(f"  Rotation (deg): {np.rad2deg(global_perturbation[:3])}")
@@ -260,7 +260,7 @@ def run_single_registration(fixed_file, cases_dir, mesh_dir, output_dir, case_na
         # binary mask -> top hat filter -> ase enchancement
     print("Preprocessing US image...")
     preprocess_start = time.time()
-    enhanced_us_data, us_header = preprocess_US(fixed_file, method='tophat', sigma=1.0, size=5)
+    enhanced_us_data, us_header = preprocess_US(fixed_file, True, method='tophat', sigma=1.0, size=5) # False = no ASE filter
     preprocess_time = time.time() - preprocess_start
     print(f"  Preprocessing completed in {preprocess_time:.2f}s")
 
@@ -308,8 +308,8 @@ def run_single_registration(fixed_file, cases_dir, mesh_dir, output_dir, case_na
         centers.append(center)
         
         # landmarks
-        target_file = f"/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans/sofa6/landmarks/US_{case}_landmarks.mrk.json"
-        source_file = f"/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans/sofa6/landmarks/CT_{case}_landmarks_intra.mrk.json"
+        target_file = f"/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans/sofa1/landmarks/US_{case}_landmarks.mrk.json"
+        source_file = f"/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans/sofa1/landmarks/CT_{case}_landmarks_intra.mrk.json"
         
         try:
             fixed_lm_parser = SlicerJsonTagParser(target_file)
@@ -474,9 +474,9 @@ if __name__ == "__main__":
     warnings.filterwarnings('ignore', message='.*NoneType.*check_attribute.*')
     
     # paths
-    mesh_dir = '/usr/local/data/elise/pig_data/pig2/Registration/cropped/sofa6'
-    cases_dir = '/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans/sofa6/Cases'
-    output_dir = '/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans/sofa6/output_python_cma_group_allcases'
+    mesh_dir = '/usr/local/data/elise/pig_data/pig2/Registration/cropped/sofa1'
+    cases_dir = '/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans/sofa1/Cases'
+    output_dir = '/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans/sofa1/output_python_cma_group_allcases'
     os.makedirs(output_dir, exist_ok=True)
     
     # get case names
@@ -542,7 +542,7 @@ if __name__ == "__main__":
                 output_dir=output_dir,
                 case_names=case_names,
                 apply_perturbation=settings["perturb"],
-                rng_seed=run_id,
+                rng_seed=None,
                 K=K,
                 pairings=pairings,
                 facet_pairings=facet_pairings,

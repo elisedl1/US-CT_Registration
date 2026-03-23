@@ -1,7 +1,7 @@
 import SimpleITK as sitk
 import matplotlib.pyplot as plt
 import numpy as np
-from centroid import compute_centroid
+from .centroid import compute_centroid
 
 def compute_ct_axes(ct_file):
     """
