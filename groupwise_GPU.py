@@ -255,7 +255,9 @@ def run_single_registration(fixed_file, cases_dir, mesh_dir, output_dir, case_na
 
     # LOAD DATA
     # fixed_parser = PyNrrdParser(fixed_file) # original, non preprocessed
-    
+        
+    # PRE-PROCESS ULTRASOUND IMAGE
+        # binary mask -> top hat filter -> ase enchancement
     print("Preprocessing US image...")
     preprocess_start = time.time()
     enhanced_us_data, us_header = preprocess_US(fixed_file, method='tophat', sigma=1.0, size=5)

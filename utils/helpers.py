@@ -2,23 +2,24 @@ import torch
 import json
 from scipy.ndimage import binary_dilation, binary_erosion
 import numpy as np
-from scipy.fft import fftn, ifftn, fftshift
 from scipy.ndimage import gaussian_filter
 import SimpleITK as sitk
 import nrrd
-from scipy.ndimage import gaussian_filter, white_tophat, grey_dilation
-from skimage import exposure
-import os
-import sys
+from scipy.ndimage import gaussian_filter, white_tophat, grey_dilation,uniform_filter
+import nrrd
+from localization.ase_filter import norm01, speckle_reduce, acoustic_shadow_energy
 
 def preprocess_US(input_path, method='tophat', sigma=1.0, size=5):
     
-    # read in image, gaussian smooth
+    # read in image, build mask from raw data before any processing
     data, header = nrrd.read(input_path)
+    us_mask = (data != 0).astype(np.uint8)
+
+    # gaussian smooth
     smoothed_data = gaussian_filter(data, sigma=sigma)
 
     if method == 'none':
-        return smoothed_data, header
+        return smoothed_data * us_mask, header, us_mask
     
     normalized = smoothed_data
     
@@ -27,9 +28,27 @@ def preprocess_US(input_path, method='tophat', sigma=1.0, size=5):
     for i in range(data.shape[0]):
         enhanced[i] = white_tophat(normalized[i], size=size)
     enhanced = normalized + enhanced
-    enhanced = np.clip(enhanced, 0, 1)  
-    
-    return enhanced, header
+    enhanced = np.clip(enhanced, 0, 1)
+
+    # apply mask to zero out anything that was zero in the original
+    enhanced = enhanced * us_mask
+
+    # ASE: per-slice speckle reduction + acoustic shadow enhancement
+    vmin, vmax = float(enhanced.min()), float(enhanced.max())
+    vol_f = (enhanced.astype(np.float32) - vmin) / (vmax - vmin + 1e-9)
+    ase_vol = np.zeros_like(vol_f, dtype=np.float32)
+
+    for z in range(vol_f.shape[2]):
+        img_sl  = vol_f[:, :, z].T[::-1]
+        mask_sl = us_mask[:, :, z].astype(np.float32).T[::-1]
+
+        img_sl   = norm01(img_sl) * (mask_sl > 0)
+        filtered = speckle_reduce(img_sl)
+        enhanced_sl, _ = acoustic_shadow_energy(filtered)
+
+        ase_vol[:, :, z] = enhanced_sl[::-1].T
+
+    return ase_vol, header
 
 
 def compute_facet_collision_loss(pairings, transforms_list, case_names):
