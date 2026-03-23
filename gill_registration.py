@@ -46,8 +46,8 @@ SUCCESS_THRESH_MM = 2.0
 def get_experiment_settings(exp_type):
     if exp_type == ExperimentType.NORMAL:
         return {
-            "us_files": ["US_full_L3_dropoutref_cal.nrrd"],
-            "perturb": True,
+            "us_files": ["US_complete_cal.nrrd"],
+            "perturb": False,
             "n_runs": 1
         }
     if exp_type == ExperimentType.FULL_SWEEP:
@@ -152,7 +152,7 @@ def run_single_registration(
     print("Preprocessing US image...")
     preprocess_start = time.time()
     enhanced_us_data, us_header = preprocess_US(
-        fixed_file, True, method='tophat', sigma=1.0, size=5
+        fixed_file, False, method='tophat', sigma=1.0, size=5
     )
     preprocess_time = time.time() - preprocess_start
     print(f"  Preprocessing completed in {preprocess_time:.2f}s")
@@ -231,7 +231,7 @@ def run_single_registration(
     upper_per = [ 0.4,  0.4,  0.4,  10,  10,  10]
     lower     = lower_per * K
     upper     = upper_per * K
-    max_iter  = 160
+    max_iter  = 10
 
     partial_eval = partial(
         evaluate_group_gpu_gill,
@@ -274,20 +274,35 @@ def run_single_registration(
         iteration = es.countiter
 
         for sol in solutions:
-            val, mean_sim, _, _, _, _ = partial_eval(sol, iteration=iteration)
-            values.append(val)
+            try:
+                val, mean_sim, _, _, _, _ = partial_eval(sol, iteration=iteration)
+                values.append(val)
+                if track_metrics:
+                    loss_history.append(val)
+                    mean_sim_history.append(mean_sim)
+                print(f"DEBUG: test evaluation succeeded, loss={val:.4f}, lc2={mean_sim:.4f}")
 
-            if track_metrics:
-                loss_history.append(val)
-                mean_sim_history.append(mean_sim)
+            except Exception as e:
+                print(f"  ERROR in evaluation: {e}")
+                import traceback
+                traceback.print_exc()
+                values.append(1e9)
 
         es.tell(solutions, values)
+
+        if es.countiter % 10 == 0:
+            best_so_far = min(values)
+            print(f"  Iter {es.countiter:3d} | best loss: {best_so_far:.6f}")
 
     # ------------------------------------------------------------------
     # FINAL TRE
     # ------------------------------------------------------------------
     best_flat = es.result.xbest
-    tre_after = compute_case_tre(best_flat, K, case_names, case_landmarks, centers)
+    if best_flat is None:
+        print("WARNING: CMA-ES returned no result — all evaluations failed.")
+        tre_after = {case: None for case in case_names}
+    else:
+        tre_after = compute_case_tre(best_flat, K, case_names, case_landmarks, centers)
 
     # ------------------------------------------------------------------
     # PRINT TRE
