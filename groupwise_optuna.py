@@ -31,7 +31,7 @@ from extra.IVD_points import compute_adjacent_vertebra_pairings
 import nrrd
 
 
-# ─── multiprocessing worker (must be at module level for pickling) ────────────
+# ─── multiprocessing worker 
 _partial_eval_global = None
 
 def _init_worker(eval_fn):
