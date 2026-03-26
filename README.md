@@ -1,6 +1,6 @@
 # Fast Robust Groupwise CT-US Registration for Intraoperative Spinal Interventions
 
-A GPU-accelerated, intensity-based groupwise registration framework for aligning preoperative CT to intraoperative ultrasound (iUS) in spinal surgery. Achieves clinically relevant accuracy (1.65 ± 0.42 mm mean TRE) with clinical speed (~40s) while maintaining robustness under large initial misalignment and missing ultrasound data.
+A GPU-accelerated, intensity-based groupwise registration framework for aligning preoperative CT to intraoperative ultrasound (iUS) in spinal surgery. Achieves clinically relevant accuracy (1.65 ± 0.42 mm mean TRE) with clinical speed (~10s) while maintaining robustness under large initial misalignment and missing ultrasound data.
 
 ## Overview
 
