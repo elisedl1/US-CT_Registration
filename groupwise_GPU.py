@@ -46,7 +46,7 @@ class ExperimentType(Enum):
 
 # CHANGE THIS TO SELECT EXPERIMENT
 EXPERIMENT = ExperimentType.FULL_SWEEP
-SUCCESS_THRESH_MM = 2.0
+SUCCESS_THRESH_MM = 2.01
 
 
 def get_experiment_settings(exp_type):
@@ -60,7 +60,7 @@ def get_experiment_settings(exp_type):
     
     if exp_type == ExperimentType.FULL_SWEEP:
         return {
-            "us_files": ["US_full_L3_dropoutref_cal.nrrd"],
+            "us_files": ["US_complete_cal.nrrd"],
             "perturb": True,
             "n_runs": 10
         }
@@ -76,7 +76,8 @@ def get_experiment_settings(exp_type):
         return {
             "us_files": [
                 "US_complete_cal.nrrd",
-                "US_full_L3_dropoutref_cal.nrrd"
+                "US_full_L3_dropoutref_cal.nrrd",
+                "US_missing_combined.nrrd"
             ],
             "perturb": True,
             "n_runs": 30
@@ -177,14 +178,14 @@ def evaluate_group_cpu(flat_params, K, centers, sampled_positions_list,
     mean_sim = total_sim / float(K)
 
     # lambda_axes = 0
-    # lambda_axes = 0.01
-    lambda_axes = linear_lambda(iteration, max_iter, lambda_final=0.01,  start_frac=0.25)
+    lambda_axes = 0.01
+    # lambda_axes = linear_lambda(iteration, max_iter, lambda_final=0.01,  start_frac=0.25)
     # lambda_axes  = linear_lambda(iteration, max_iter, lambda_final=0.0017,  start_frac=0.23)
 
 
     # lambda_ivd = 0
-    # lambda_ivd - 0.001
-    lambda_ivd  = linear_lambda(iteration, max_iter, lambda_final=0.002, start_frac=0.25)
+    lambda_ivd = 0.001
+    # lambda_ivd  = linear_lambda(iteration, max_iter, lambda_final=0.002, start_frac=0.25)
     # lambda_ivd   = linear_lambda(iteration, max_iter, lambda_final=0.00038, start_frac=0.39)
     
     lambda_facet = 0.0
@@ -202,7 +203,10 @@ def evaluate_group_cpu(flat_params, K, centers, sampled_positions_list,
         moved_centroids, case_centroids, case_axes, transforms_list, axes_margins
     )
 
-    ivd_loss, ivd_metrics = compute_ivd_collision_loss(pairings, transforms_list, case_names)
+    compression_cap = 0.7
+    ivd_loss, ivd_metrics = compute_ivd_collision_loss(
+        pairings, transforms_list, case_names, compression_cap=compression_cap
+    )
     facet_loss, _ = compute_facet_collision_loss(facet_pairings, transforms_list, case_names)
 
     total_loss = (
@@ -350,7 +354,8 @@ def run_single_registration(fixed_file, cases_dir, mesh_dir, output_dir, case_na
         case_names=case_names,
         max_iter=max_iter,
         device='cpu',
-        profile=False
+        profile=False,
+        compression_cap = 0.7
     )
 
     es = cma.CMAEvolutionStrategy(
@@ -514,7 +519,8 @@ if __name__ == "__main__":
                 pairings=pairings,
                 facet_pairings=facet_pairings,
                 track_metrics=track_metrics,
-                save_transforms=(EXPERIMENT == ExperimentType.NORMAL)
+                save_transforms=(EXPERIMENT == ExperimentType.NORMAL),
+                compression_cap=0.7
             )
 
             all_results[us_file]["initial_tre"].append(tre_before)

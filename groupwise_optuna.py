@@ -52,7 +52,7 @@ class ExperimentType(Enum):
 
 # CHANGE THIS TO SELECT EXPERIMENT
 EXPERIMENT = ExperimentType.OPTUNA_TUNING
-SUCCESS_THRESH_MM = 2.0
+SUCCESS_THRESH_MM = 2.01
 
 
 def get_experiment_settings(exp_type):
@@ -121,7 +121,7 @@ def evaluate_group_cpu(flat_params, K, centers, sampled_positions_list,
                        lambda_axes_final, lambda_ivd_final, lambda_facet,
                        axes_start_frac, ivd_start_frac,
                        axes_margins,
-                       device='cpu', profile=False):
+                       device='cpu', profile=False, compression_cap=0.7):
     """CPU-only version used by worker processes."""
 
     total_sim = 0.0
@@ -163,7 +163,7 @@ def evaluate_group_cpu(flat_params, K, centers, sampled_positions_list,
     )
 
     lambda_ivd_val = linear_lambda(iteration, max_iter, lambda_ivd_final, ivd_start_frac)
-    ivd_loss, ivd_metrics = compute_ivd_collision_loss(pairings, transforms_list, case_names)
+    ivd_loss, ivd_metrics = compute_ivd_collision_loss(pairings, transforms_list, case_names, compression_cap=compression_cap)
 
     facet_loss, _ = compute_facet_collision_loss(facet_pairings, transforms_list, case_names)
 
@@ -201,6 +201,7 @@ def run_single_registration(fixed_file, cases_dir, mesh_dir, output_dir, case_na
         max_iter = 120
         lambda_axes_final = 0.01
         lambda_ivd_final = 0.002
+        compression_cap = 0.7
         lambda_facet = 0.0
         axes_start_frac = 0.25
         ivd_start_frac = 0.25
@@ -211,35 +212,27 @@ def run_single_registration(fixed_file, cases_dir, mesh_dir, output_dir, case_na
             'SI_rot': np.deg2rad(2)
         }
     else:
-        sigma0 = hyperparams['sigma0']
-        base_stds = [
-            hyperparams['base_std_rot'],
-            hyperparams['base_std_rot'],
-            hyperparams['base_std_rot'],
-            hyperparams['base_std_trans'],
-            hyperparams['base_std_trans'],
-            hyperparams['base_std_trans']
-        ]
-        popsize = hyperparams.get('popsize', 80)
-        max_iter = hyperparams.get('max_iter', 120)
+        sigma0 = 0.5
+        base_stds = [0.01, 0.01, 0.01, 0.5, 0.5, 0.5]
+        popsize = 80
+        max_iter = 120
         lambda_axes_final = hyperparams['lambda_axes_final']
         lambda_ivd_final  = hyperparams['lambda_ivd_final']
-        lambda_facet      = hyperparams['lambda_facet']
+        compression_cap   = hyperparams['compression_cap']
+        lambda_facet      = 0.0
         axes_start_frac   = hyperparams['axes_start_frac']
         ivd_start_frac    = hyperparams['ivd_start_frac']
         axes_margins = {
-            'LM':     hyperparams['margin_LM'],
-            'AP':     hyperparams['margin_AP'],
-            'SI':     hyperparams['margin_SI'],
-            'LM_rot': np.deg2rad(hyperparams['margin_LM_rot_deg']),
-            'AP_rot': np.deg2rad(hyperparams['margin_AP_rot_deg']),
-            'SI_rot': np.deg2rad(hyperparams['margin_SI_rot_deg'])
+            'LM': 2.0, 'AP': 2.0, 'SI': 2.0,
+            'LM_rot': np.deg2rad(10),
+            'AP_rot': np.deg2rad(6),
+            'SI_rot': np.deg2rad(2)
         }
 
     # PERTURBATION
     if apply_perturbation:
-        rot   = np.deg2rad(rng.uniform(-10.0, 10.0, size=3))
-        trans = rng.uniform(-10.0, 10.0, size=3)
+        rot   = np.deg2rad(rng.uniform(-8.0, 8.0, size=3))
+        trans = rng.uniform(-8.0, 8.0, size=3)
         global_perturbation = np.concatenate([rot, trans])
     else:
         global_perturbation = np.zeros(6)
@@ -291,8 +284,8 @@ def run_single_registration(fixed_file, cases_dir, mesh_dir, output_dir, case_na
         )
         centers.append(center)
 
-        target_file = f"/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans/sofa5/landmarks/US_{case}_landmarks.mrk.json"
-        source_file = f"/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans/sofa5/landmarks/CT_{case}_landmarks_intra.mrk.json"
+        target_file = f"/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans/sofa1/landmarks/US_{case}_landmarks.mrk.json"
+        source_file = f"/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans/sofa1/landmarks/CT_{case}_landmarks_intra.mrk.json"
 
         try:
             fixed_lm_parser  = SlicerJsonTagParser(target_file)
@@ -352,7 +345,8 @@ def run_single_registration(fixed_file, cases_dir, mesh_dir, output_dir, case_na
         ivd_start_frac=ivd_start_frac,
         axes_margins=axes_margins,
         device='cpu',
-        profile=False
+        profile=False,
+        compression_cap=compression_cap
     )
 
     es = cma.CMAEvolutionStrategy(
@@ -425,22 +419,11 @@ def create_objective_function(fixed_file, cases_dir, mesh_dir, output_dir,
     def objective(trial):
 
         hyperparams = {
-            'sigma0':             trial.suggest_float('sigma0', 0.1, 2.0, log=True),
-            'base_std_rot':       trial.suggest_float('base_std_rot', 0.005, 0.05, log=True),
-            'base_std_trans':     trial.suggest_float('base_std_trans', 0.1, 2.0, log=True),
-            'popsize':            trial.suggest_int('popsize', 40, 120, step=20),
-            'max_iter':           trial.suggest_int('max_iter', 80, 200, step=20),
             'lambda_axes_final':  trial.suggest_float('lambda_axes_final', 0.001, 0.05, log=True),
             'lambda_ivd_final':   trial.suggest_float('lambda_ivd_final', 0.0001, 0.01, log=True),
-            'lambda_facet':       trial.suggest_float('lambda_facet', 0.0, 0.005),
+            'compression_cap':    trial.suggest_float('compression_cap', 0.5, 0.9),
             'axes_start_frac':    trial.suggest_float('axes_start_frac', 0.0, 0.5),
             'ivd_start_frac':     trial.suggest_float('ivd_start_frac', 0.0, 0.5),
-            'margin_LM':          trial.suggest_float('margin_LM', 1.0, 4.0),
-            'margin_AP':          trial.suggest_float('margin_AP', 1.0, 4.0),
-            'margin_SI':          trial.suggest_float('margin_SI', 1.0, 4.0),
-            'margin_LM_rot_deg':  trial.suggest_float('margin_LM_rot_deg', 5, 15),
-            'margin_AP_rot_deg':  trial.suggest_float('margin_AP_rot_deg', 3, 10),
-            'margin_SI_rot_deg':  trial.suggest_float('margin_SI_rot_deg', 1, 5),
         }
 
         successes = []
@@ -608,7 +591,7 @@ def run_hyperparameter_tuning(fixed_file, cases_dir, mesh_dir, output_dir,
         load_if_exists=True,
         direction="minimize",
         sampler=TPESampler(seed=42, n_startup_trials=10),
-        pruner=MedianPruner(n_startup_trials=5, n_warmup_steps=2)
+        pruner=MedianPruner(n_startup_trials=3, n_warmup_steps=2)
     )
 
     objective = create_objective_function(
@@ -664,9 +647,9 @@ if __name__ == "__main__":
     warnings.filterwarnings('ignore', category=DeprecationWarning)
     warnings.filterwarnings('ignore', message='.*NoneType.*check_attribute.*')
 
-    mesh_dir   = '/usr/local/data/elise/pig_data/pig2/Registration/cropped/sofa5'
-    cases_dir  = '/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans/sofa5/Cases'
-    output_dir = '/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans/sofa5/output_python_cma_group_allcases'
+    mesh_dir   = '/usr/local/data/elise/pig_data/pig2/Registration/cropped/sofa1'
+    cases_dir  = '/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans/sofa1/Cases'
+    output_dir = '/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans/sofa1/output_python_cma_group_allcases'
     os.makedirs(output_dir, exist_ok=True)
 
     case_names = sorted([

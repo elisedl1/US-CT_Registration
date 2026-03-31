@@ -157,7 +157,7 @@ def compute_facet_collision_loss(pairings, transforms_list, case_names):
 
 
 
-def compute_ivd_collision_loss(pairings, transforms_list, case_names):
+def compute_ivd_collision_loss(pairings, transforms_list, case_names, compression_cap=0.7):
     # IVD collision loss tuned for your specific anatomy
     total_loss = 0.0
     metrics = {}
@@ -206,7 +206,7 @@ def compute_ivd_collision_loss(pairings, transforms_list, case_names):
 
 
         # LOSS COMPONENT 3a: PRESERVE MIN SPACING (SOFT)
-        min_allowed = 0.7 * initial_distances  # 30% compression cap (physio-safe)
+        min_allowed = compression_cap * initial_distances  # 30% compression cap (physio-safe)
 
         violations = min_allowed - current_distances
         violations = np.maximum(0, violations)
