@@ -60,9 +60,9 @@ def get_experiment_settings(exp_type):
     
     if exp_type == ExperimentType.FULL_SWEEP:
         return {
-            "us_files": ["US_complete_cal.nrrd"],
+            "us_files": ["US_missing_combined.nrrd"],
             "perturb": True,
-            "n_runs": 10
+            "n_runs": 30
         }
     
     if exp_type == ExperimentType.MISSING_DATA:
@@ -137,7 +137,7 @@ def evaluate_group_cpu(flat_params, K, centers, sampled_positions_list,
                        moving_parsers, fixed_parser,
                        case_centroids, orig_dists, case_axes, pairings, facet_pairings,
                        case_names, iteration, max_iter,
-                       device='cpu', profile=False):
+                       device='cpu', profile=False, compression_cap=0.7):
     """CPU-only version used by worker processes."""
 
     total_sim = 0.0
@@ -519,8 +519,7 @@ if __name__ == "__main__":
                 pairings=pairings,
                 facet_pairings=facet_pairings,
                 track_metrics=track_metrics,
-                save_transforms=(EXPERIMENT == ExperimentType.NORMAL),
-                compression_cap=0.7
+                save_transforms=(EXPERIMENT == ExperimentType.NORMAL)
             )
 
             all_results[us_file]["initial_tre"].append(tre_before)

@@ -9,6 +9,7 @@ from scipy.ndimage import gaussian_filter, white_tophat, grey_dilation,uniform_f
 import nrrd
 from localization.ase_filter import norm01, speckle_reduce, acoustic_shadow_energy
 
+# https://www.nature.com/articles/s41598-020-66468-x # can cite this
 def preprocess_US(input_path, ase, method='tophat', sigma=1.0, size=5):
     
     # binary US mask

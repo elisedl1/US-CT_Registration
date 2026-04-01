@@ -590,7 +590,7 @@ def run_hyperparameter_tuning(fixed_file, cases_dir, mesh_dir, output_dir,
         storage=storage_name,
         load_if_exists=True,
         direction="minimize",
-        sampler=TPESampler(seed=42, n_startup_trials=10),
+        sampler=TPESampler(seed=42, n_startup_trials=5),
         pruner=MedianPruner(n_startup_trials=3, n_warmup_steps=2)
     )
 
