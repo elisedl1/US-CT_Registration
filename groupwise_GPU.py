@@ -60,9 +60,9 @@ def get_experiment_settings(exp_type):
     
     if exp_type == ExperimentType.FULL_SWEEP:
         return {
-            "us_files": ["US_missing_combined.nrrd"],
+            "us_files": ["US_complete_cal.nrrd"],
             "perturb": True,
-            "n_runs": 30
+            "n_runs": 10
         }
     
     if exp_type == ExperimentType.MISSING_DATA:
@@ -180,13 +180,13 @@ def evaluate_group_cpu(flat_params, K, centers, sampled_positions_list,
     # lambda_axes = 0
     lambda_axes = 0.01
     # lambda_axes = linear_lambda(iteration, max_iter, lambda_final=0.01,  start_frac=0.25)
-    # lambda_axes  = linear_lambda(iteration, max_iter, lambda_final=0.0017,  start_frac=0.23)
+    # lambda_axes  = linear_lambda(iteration, max_iter, lambda_final=0.01,  start_frac=0.2)
 
 
     # lambda_ivd = 0
     lambda_ivd = 0.001
     # lambda_ivd  = linear_lambda(iteration, max_iter, lambda_final=0.002, start_frac=0.25)
-    # lambda_ivd   = linear_lambda(iteration, max_iter, lambda_final=0.00038, start_frac=0.39)
+    # lambda_ivd   = linear_lambda(iteration, max_iter, lambda_final=0.002, start_frac=0.2)
     
     lambda_facet = 0.0
 
@@ -250,7 +250,7 @@ def run_single_registration(fixed_file, cases_dir, mesh_dir, output_dir, case_na
     # PRE-PROCESS ULTRASOUND IMAGE
     print("Preprocessing US image...")
     preprocess_start = time.time()
-    enhanced_us_data, us_header = preprocess_US(fixed_file, False, method='tophat', sigma=1.0, size=5)
+    enhanced_us_data, us_header = preprocess_US(fixed_file, False, method='none', sigma=1.0, size=5)
     preprocess_time = time.time() - preprocess_start
     print(f"  Preprocessing completed in {preprocess_time:.2f}s")
 
@@ -295,8 +295,8 @@ def run_single_registration(fixed_file, cases_dir, mesh_dir, output_dir, case_na
         )
         centers.append(center)
 
-        target_file = f"/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans/sofa1/landmarks/US_{case}_landmarks.mrk.json"
-        source_file = f"/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans/sofa1/landmarks/CT_{case}_landmarks_intra.mrk.json"
+        target_file = f"/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans/sofa3/landmarks/US_{case}_landmarks.mrk.json"
+        source_file = f"/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans/sofa3/landmarks/CT_{case}_landmarks_intra.mrk.json"
 
         try:
             fixed_lm_parser  = SlicerJsonTagParser(target_file)
@@ -453,9 +453,9 @@ if __name__ == "__main__":
     warnings.filterwarnings('ignore', category=DeprecationWarning)
     warnings.filterwarnings('ignore', message='.*NoneType.*check_attribute.*')
 
-    mesh_dir   = '/usr/local/data/elise/pig_data/pig2/Registration/cropped/sofa1'
-    cases_dir  = '/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans/sofa1/Cases'
-    output_dir = '/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans/sofa1/output_python_cma_group_allcases'
+    mesh_dir   = '/usr/local/data/elise/pig_data/pig2/Registration/cropped/sofa3'
+    cases_dir  = '/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans/sofa3/Cases'
+    output_dir = '/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans/sofa3/output_python_cma_group_allcases'
     os.makedirs(output_dir, exist_ok=True)
 
     case_names = sorted([
