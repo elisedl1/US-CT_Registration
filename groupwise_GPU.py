@@ -54,20 +54,20 @@ def get_experiment_settings(exp_type):
     if exp_type == ExperimentType.NORMAL:
         return {
             "us_files": ["US_complete_cal.nrrd"],
-            "perturb": True,
+            "perturb": False,
             "n_runs": 1
         }
     
     if exp_type == ExperimentType.FULL_SWEEP:
         return {
-            "us_files": ["US_complete_cal.nrrd"],
+            "us_files": ["US_full_L3_dropoutref_cal.nrrd"],
             "perturb": True,
             "n_runs": 10
         }
     
     if exp_type == ExperimentType.MISSING_DATA:
         return {
-            "us_files": ["US_full_L3_dropoutref_cal.nrrd"],
+            "us_files": ["US_missing_combined.nrrd"],
             "perturb": False,
             "n_runs": 30
         }
@@ -100,7 +100,7 @@ def init_results():
     }
 
 
-def success_from_tre(tre_dict, thresh=2.0):
+def success_from_tre(tre_dict, thresh=2.01):
     """check success per vertebra and overall"""
     per_vertebra = {}
     for case, tre in tre_dict.items():
@@ -166,17 +166,27 @@ def evaluate_group_cpu(flat_params, K, centers, sampled_positions_list,
 
         valid_mask = moving_intensities > 0
         n_valid = valid_mask.sum()
+
         if n_valid > 0:
-            total_sim += float(np.mean(moving_intensities[valid_mask]))
+            # Only compute similarity on valid US data points
+            sim = float(np.mean(moving_intensities[valid_mask]))
+            total_sim += sim
             num_valid_cases += 1
 
+        # sim = float(np.mean(moving_intensities)) # original mean
+        # total_sim += sim
+        
         # move centroids
-        ct_centroid = np.array(case_centroids[k], dtype=np.float64)
-        moved_centroid = np.array(tx_inv.TransformPoint(ct_centroid.tolist()))
-        moved_centroids.append(moved_centroid)
+        ct_centroid = torch.tensor(case_centroids[k], device=device, dtype=torch.float32)
+        moved_centroid = torch.tensor(tx_inv.TransformPoint(ct_centroid.cpu().numpy().tolist()), device=device)
+        moved_centroids.append(moved_centroid.cpu().numpy())
 
-    mean_sim = total_sim / float(K)
 
+    mean_sim = (total_sim / float(K)) # original computation
+    # mean_sim = (total_sim / float(num_valid_cases)) ** 1 # other computation , was ** 1.5
+
+
+    # CONSTRAINT VALUES
     # lambda_axes = 0
     lambda_axes = 0.01
     # lambda_axes = linear_lambda(iteration, max_iter, lambda_final=0.01,  start_frac=0.25)
@@ -188,7 +198,7 @@ def evaluate_group_cpu(flat_params, K, centers, sampled_positions_list,
     # lambda_ivd  = linear_lambda(iteration, max_iter, lambda_final=0.002, start_frac=0.25)
     # lambda_ivd   = linear_lambda(iteration, max_iter, lambda_final=0.002, start_frac=0.2)
     
-    lambda_facet = 0.0
+    lambda_facet = 0.001
 
     axes_margins = {
         'LM': 2.0,
@@ -238,8 +248,8 @@ def run_single_registration(fixed_file, cases_dir, mesh_dir, output_dir, case_na
 
     # PERTURBATION
     if apply_perturbation:
-        rot   = np.deg2rad(rng.uniform(-8.0, 8.0, size=3))
-        trans = rng.uniform(-8.0, 8.0, size=3)
+        rot   = np.deg2rad(rng.uniform(-10.0, 10.0, size=3))
+        trans = rng.uniform(-10.0, 10.0, size=3)
         global_perturbation = np.concatenate([rot, trans])
         print(f"\nApplied random perturbation (seed={rng_seed}):")
         print(f"  Rotation (deg): {np.rad2deg(global_perturbation[:3])}")
@@ -250,7 +260,7 @@ def run_single_registration(fixed_file, cases_dir, mesh_dir, output_dir, case_na
     # PRE-PROCESS ULTRASOUND IMAGE
     print("Preprocessing US image...")
     preprocess_start = time.time()
-    enhanced_us_data, us_header = preprocess_US(fixed_file, False, method='none', sigma=1.0, size=5)
+    enhanced_us_data, us_header = preprocess_US(fixed_file, False, method='top-hat', sigma=1.0, size=5)
     preprocess_time = time.time() - preprocess_start
     print(f"  Preprocessing completed in {preprocess_time:.2f}s")
 
@@ -295,8 +305,8 @@ def run_single_registration(fixed_file, cases_dir, mesh_dir, output_dir, case_na
         )
         centers.append(center)
 
-        target_file = f"/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans/sofa3/landmarks/US_{case}_landmarks.mrk.json"
-        source_file = f"/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans/sofa3/landmarks/CT_{case}_landmarks_intra.mrk.json"
+        target_file = f"/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans/sofa6/landmarks/US_{case}_landmarks.mrk.json"
+        source_file = f"/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans/sofa6/landmarks/CT_{case}_landmarks_intra.mrk.json"
 
         try:
             fixed_lm_parser  = SlicerJsonTagParser(target_file)
@@ -355,7 +365,7 @@ def run_single_registration(fixed_file, cases_dir, mesh_dir, output_dir, case_na
         max_iter=max_iter,
         device='cpu',
         profile=False,
-        compression_cap = 0.7
+        compression_cap = 0.6
     )
 
     es = cma.CMAEvolutionStrategy(
@@ -368,7 +378,7 @@ def run_single_registration(fixed_file, cases_dir, mesh_dir, output_dir, case_na
             'verb_disp': 0,
             'maxiter':   max_iter,
             'tolfun':    1e-5,
-            'seed':      42
+            'seed':      None
         }
     )
 
@@ -453,9 +463,9 @@ if __name__ == "__main__":
     warnings.filterwarnings('ignore', category=DeprecationWarning)
     warnings.filterwarnings('ignore', message='.*NoneType.*check_attribute.*')
 
-    mesh_dir   = '/usr/local/data/elise/pig_data/pig2/Registration/cropped/sofa3'
-    cases_dir  = '/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans/sofa3/Cases'
-    output_dir = '/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans/sofa3/output_python_cma_group_allcases'
+    mesh_dir   = '/usr/local/data/elise/pig_data/pig2/Registration/cropped/sofa6'
+    cases_dir  = '/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans/sofa6/Cases'
+    output_dir = '/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans/sofa6/output_python_cma_group_allcases'
     os.makedirs(output_dir, exist_ok=True)
 
     case_names = sorted([
