@@ -15,10 +15,12 @@ force_rigid = True
 # moving_file = "/Users/elisedonszelmann-lund/Masters_Utils/Rivas_Data/CaninePhantom/co_registered/US.nrrd"
 # moving_file = "/Users/elisedonszelmann-lund/Masters_Utils/Rivas_Data/CaninePhantom/original_data/US_silvertruth.nrrd"
 # moving_file = '/Users/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/Known_Trans/trans1/US.nrrd'
-US_file = '/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/US.nrrd'
+# US_file = '/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/US.nrrd'
+US_file = "/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/gradients/log_gabor_enhanced.nrrd"
 transform = sitk.ReadTransform('/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/acq0_modif-ImageToReference.h5')
 mha_US = '/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/percut/acq0_modif.igs.mha'
-US_mask = '/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/US_mask.nrrd'
+# US_mask = '/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/US_mask.nrrd'
+US_mask = "/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/US_Vertevra_axial_two_cal/US_complete_cal_mask.nrrd"
 
 # Get the 3x3 rotation matrix
 R = np.array(transform.GetMatrix()).reshape(3,3)
@@ -130,27 +132,39 @@ w = sigmoid_raw / sigmoid_at_mid
 US_torch = torch.tensor(US_np, dtype=torch.float32)
 intensity_mag_dgc = US_torch * w
 
-# VISUALLY INSPECT
-x_idx = US_np.shape[0] // 2 - 20
+# # VISUALLY INSPECT
+# x_idx = US_np.shape[0] // 2 - 20
 
-# Extract the coronal slices
-grad_slice = US_torch[:, x_idx, :].cpu().numpy()
-grad_dgc_slice_newmask = intensity_mag_dgc[:, x_idx, :].cpu().numpy()
+# # Extract the coronal slices
+# grad_slice = US_torch[:, x_idx, :].cpu().numpy()
+# grad_dgc_slice_newmask = intensity_mag_dgc[:, x_idx, :].cpu().numpy()
 
-# Save as PNG images
-plt.figure(figsize=(5,5))
-plt.imshow(grad_slice.T, cmap='gray', origin='lower')
-plt.title('Intensity (No DGC)')
-plt.axis('off')
-# plt.close()
+# # Save as PNG images
+# plt.figure(figsize=(5,5))
+# plt.imshow(grad_slice.T, cmap='gray', origin='lower')
+# plt.title('Intensity (No DGC)')
+# plt.axis('off')
+# # plt.close()
 
 
-plt.figure(figsize=(5,5))
-plt.imshow(grad_dgc_slice_newmask.T, cmap='gray', origin='lower')
-plt.title('Intensity (With New DGC)')
-plt.axis('off')
-# plt.close()
-plt.show(block=True)
+# plt.figure(figsize=(5,5))
+# plt.imshow(grad_dgc_slice_newmask.T, cmap='gray', origin='lower')
+# plt.title('Intensity (With New DGC)')
+# plt.axis('off')
+# # plt.close()
+# plt.show(block=True)
+
+def save_torch_as_nrrd(tensor, reference_sitk, output_path):
+    """Save a torch tensor as NRRD, preserving the geometry of the reference image."""
+    # Convert back from X x Y x Z to Z x Y x X (SimpleITK convention)
+    np_array = tensor.cpu().numpy().transpose(2, 1, 0)
+    out_sitk = sitk.GetImageFromArray(np_array)
+    # Copy spatial metadata from reference
+    out_sitk.SetSpacing(reference_sitk.GetSpacing())
+    out_sitk.SetOrigin(reference_sitk.GetOrigin())
+    out_sitk.SetDirection(reference_sitk.GetDirection())
+    sitk.WriteImage(out_sitk, output_path)
+    print(f"Saved: {output_path}")
 
 
 # out_dir = "/Users/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration"
@@ -196,7 +210,7 @@ os.makedirs(out_dir, exist_ok=True)
 # save_torch_as_nrrd(masked_us, US_sitk, os.path.join(out_dir, "US_surface.nrrd"))
 
 # save intensity weighted volume
-# save_torch_as_nrrd(intensity_mag_dgc, US_sitk, os.path.join(out_dir, "US_weight.nrrd"))
+save_torch_as_nrrd(intensity_mag_dgc, US_sitk, os.path.join(out_dir, "US_weight.nrrd"))
 
 # # save gradient weighted volume
 # save_torch_as_nrrd(grad_moving_percentile, US_sitk, os.path.join(out_dir, "US_grad.nrrd"))

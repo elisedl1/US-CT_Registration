@@ -14,6 +14,7 @@ from scipy.ndimage import gaussian_filter
 import os
 import argparse
 
+
 # ── paths ──────────────────────────────────────────────────────────────────
 US_PATH = "/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/US_Vertebra_axial_cal/US_complete_cal.nrrd"
 
@@ -28,7 +29,7 @@ OUT_DIR = "/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Regist
 
 # ── parameters ─────────────────────────────────────────────────────────────
 SIGMA = 1.0          # Gaussian smoothing sigma before derivative (in voxels)
-PERCENTILE = 80      # gradient magnitude percentile threshold for US
+PERCENTILE = 95      # gradient magnitude percentile threshold for US
 
 
 def get_spacing_from_header(header):
