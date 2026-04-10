@@ -9,6 +9,82 @@ from scipy.ndimage import gaussian_filter, white_tophat, grey_dilation,uniform_f
 import nrrd
 from localization.ase_filter import norm01, speckle_reduce, acoustic_shadow_energy
 
+
+def rotation_to_angle_axis(R):
+    """Convert 3x3 rotation matrix to axis-angle (returns angle in degrees)."""
+    # Clamp for numerical safety
+    angle = np.arccos(np.clip((np.trace(R) - 1) / 2.0, -1.0, 1.0))
+    return np.rad2deg(angle)
+
+def compute_rotation_from_landmarks(ct_lms, us_lms):
+    """
+    Estimate rotation between two sets of corresponding landmarks via SVD.
+    ct_lms, us_lms: (N, 3) tensors or numpy arrays
+    Returns rotation matrix R such that us ≈ R @ ct (after centering)
+    """
+    if hasattr(ct_lms, 'cpu'):
+        ct_lms = ct_lms.cpu().numpy()
+    if hasattr(us_lms, 'cpu'):
+        us_lms = us_lms.cpu().numpy()
+
+    # Center
+    ct_centroid = ct_lms.mean(axis=0)
+    us_centroid = us_lms.mean(axis=0)
+    ct_c = ct_lms - ct_centroid
+    us_c = us_lms - us_centroid
+
+    # SVD of cross-covariance
+    H = ct_c.T @ us_c  # (3, 3)
+    U, S, Vt = np.linalg.svd(H)
+
+    # Ensure proper rotation (det = +1, not a reflection)
+    d = np.linalg.det(Vt.T @ U.T)
+    D = np.diag([1, 1, d])
+    R = Vt.T @ D @ U.T
+
+    return R
+
+
+def compute_case_angular_error(flat_params, K, case_names, case_landmarks, centers):
+    """
+    For each vertebra, compute:
+      - R_gt:   rotation estimated from landmark pairs (ground truth alignment)
+      - R_reg:  rotation from the registration transform
+      - angle deviation between them
+    """
+    angular_errors = {}
+
+    for k, case in enumerate(case_names):
+        ct_lms, us_lms = case_landmarks[k]
+        if ct_lms is None or us_lms is None:
+            angular_errors[case] = None
+            continue
+
+        # Ground-truth rotation from landmarks
+        R_gt = compute_rotation_from_landmarks(ct_lms, us_lms)
+
+        # Rotation from registration parameters
+        params = flat_params[6*k:6*(k+1)]
+        tx = sitk.Euler3DTransform()
+        tx.SetCenter(centers[k].tolist())
+        tx.SetParameters(params.tolist())
+        tx_inv = tx.GetInverse()
+
+        # Extract 3x3 rotation from the 4x4 matrix
+        M = sitk_euler_to_matrix(tx_inv)
+        R_reg = M[:3, :3]
+
+        # Angular deviation: R_error = R_reg @ R_gt^T
+        R_error = R_reg @ R_gt.T
+        angle_deg = rotation_to_angle_axis(R_error)
+
+        angular_errors[case] = angle_deg
+
+    return angular_errors
+
+
+    
+
 # https://www.nature.com/articles/s41598-020-66468-x # can cite this
 def preprocess_US(input_path, ase, method='tophat', sigma=1.0, size=5):
     
