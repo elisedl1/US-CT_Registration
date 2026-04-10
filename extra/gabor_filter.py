@@ -17,7 +17,7 @@ from pathlib import Path
 
 # ── Paths ──────────────────────────────────────────────────────────────────────
 input_path = "/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/US_Vertevra_axial_two_cal/US_complete_cal.nrrd"
-output_dir = "/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/gradients"
+output_dir = "/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/US_Vertevra_axial_two_cal"
 
 # ── Log-Gabor parameters (matching paper) ─────────────────────────────────────
 N_ORIENTATIONS = 6          # θ_0 values evenly spaced over [0, π)
@@ -120,7 +120,7 @@ for z in range(nz):
             denominator += A_so
 
     # Eq. (5): normalised enhanced slice
-    enhanced[:, :, z] = (numerator / (denominator + EPSILON)).astype(np.float32)
+    enhanced[:, :, z] = np.clip(numerator / (denominator + EPSILON), 0, None).astype(np.float32)
 
 # ── Save ───────────────────────────────────────────────────────────────────────
 Path(output_dir).mkdir(parents=True, exist_ok=True)
