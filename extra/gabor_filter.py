@@ -16,7 +16,7 @@ import nrrd
 from pathlib import Path
 
 # ── Paths ──────────────────────────────────────────────────────────────────────
-input_path = "/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/US_Vertevra_axial_two_cal/US_complete_cal.nrrd"
+input_path = "/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/US_Vertevra_axial_two_cal/aniso/aniso_preprocessed.nrrd"
 output_dir = "/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/US_Vertevra_axial_two_cal"
 
 # ── Log-Gabor parameters (matching paper) ─────────────────────────────────────

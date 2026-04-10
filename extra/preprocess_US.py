@@ -2,7 +2,7 @@ from scipy.ndimage import gaussian_filter, white_tophat
 import nrrd 
 import numpy as np 
 
-def preprocess_US(input_path, method='tophat', sigma=1.0, size=5):
+def preprocess_US(input_path, method='tophat', sigma=0.0, size=5):
     
     # read in image, gaussian smooth
     data, header = nrrd.read(input_path)
@@ -24,7 +24,7 @@ def preprocess_US(input_path, method='tophat', sigma=1.0, size=5):
 
 
 if __name__ == '__main__':
-    path = "/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/Known_Trans/sofa6/Cases/US_complete_cal.nrrd"
+    path = "/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/US_Vertevra_axial_two_cal/aniso/aniso.nrrd"
     output_path = path.replace('.nrrd', '_preprocessed.nrrd')
 
     enhanced, header = preprocess_US(path, method='tophat', sigma=1.0, size=5)
