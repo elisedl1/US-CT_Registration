@@ -53,7 +53,7 @@ def get_experiment_settings(exp_type):
     """define experiment-specific settings"""
     if exp_type == ExperimentType.NORMAL:
         return {
-            "us_files": ["aniso.nrrd"], # "US_complete_cal.nrrd"
+            "us_files": ["US_complete_cal.nrrd"],
             "perturb": True,
             "n_runs": 1
         }
@@ -261,7 +261,7 @@ def run_single_registration(fixed_file, cases_dir, mesh_dir, output_dir, case_na
     # PRE-PROCESS ULTRASOUND IMAGE
     print("Preprocessing US image...")
     preprocess_start = time.time()
-    enhanced_us_data, us_header = preprocess_US(fixed_file, False, method='top-hat', sigma=0.0, size=5)
+    enhanced_us_data, us_header = preprocess_US(fixed_file, method='aniso+tophat', sigma=0.0, size=5)
     preprocess_time = time.time() - preprocess_start
     print(f"  Preprocessing completed in {preprocess_time:.2f}s")
 

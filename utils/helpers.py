@@ -86,52 +86,50 @@ def compute_case_angular_error(flat_params, K, case_names, case_landmarks, cente
     
 
 # https://www.nature.com/articles/s41598-020-66468-x # can cite this
-def preprocess_US(input_path, ase, method='tophat', sigma=1.0, size=5):
-    
+def preprocess_US(input_path, method='tophat+aniso', sigma=1.0, size=5):
+    """
+    method: comma/plus-separated combination of 'gaussian', 'tophat', 'aniso'
+            e.g. 'tophat+aniso', 'gaussian', 'tophat', 'aniso', 'tophat+gaussian+aniso', 'none'
+    sigma:  Gaussian sigma (used for both gaussian step and internal smoothing)
+    size:   top-hat structuring element size
+    """
+
     # binary US mask
     data, header = nrrd.read(input_path)
     us_mask = (data != 0).astype(np.uint8)
 
-    # gaussian smooth
-    smoothed_data = gaussian_filter(data, sigma=sigma)
+    steps = method.replace(',', '+').split('+')
+    result = data.astype(np.float32)
 
     if method == 'none':
-        print("returning smoothed only")
-        return smoothed_data * us_mask, header
-    
-    # top-hat transform highlights bright features
-    normalized = smoothed_data
-    enhanced = np.zeros_like(normalized)
-    for i in range(data.shape[0]):
-        enhanced[i] = white_tophat(normalized[i], size=size)
-    enhanced = normalized + enhanced
-    enhanced = np.clip(enhanced, 0, 1)
+        print("returning original (masked) only")
+        return result * us_mask, header
 
-    # apply mask to zero out anything that was zero in the original
-    enhanced = enhanced * us_mask
+    for step in steps:
+        if step == 'gaussian':
+            result = gaussian_filter(result, sigma=sigma)
+            print("applied gaussian")
 
-    if ase == False:
-        print("returning tophat enhanced")
-        return normalized, header
+        elif step == 'tophat':
+            enhanced = np.zeros_like(result)
+            for i in range(result.shape[0]):
+                enhanced[i] = white_tophat(result[i], size=size)
+            result = np.clip(result + enhanced, 0, 1)
+            print("applied tophat")
 
+        elif step == 'aniso':
+            import SimpleITK as sitk
+            sitk_img = sitk.Cast(sitk.GetImageFromArray(result), sitk.sitkFloat32)
+            flt = sitk.CurvatureAnisotropicDiffusionImageFilter()
+            flt.SetNumberOfIterations(10)
+            flt.SetTimeStep(0.0625)
+            flt.SetConductanceParameter(3.0)
+            result = sitk.GetArrayFromImage(flt.Execute(sitk_img))
+            print("applied aniso")
 
-    # ASE: per-slice speckle reduction + acoustic shadow enhancement
-    vmin, vmax = float(enhanced.min()), float(enhanced.max())
-    vol_f = (enhanced.astype(np.float32) - vmin) / (vmax - vmin + 1e-9)
-    ase_vol = np.zeros_like(vol_f, dtype=np.float32)
-
-    for z in range(vol_f.shape[2]):
-        img_sl  = vol_f[:, :, z].T[::-1]
-        mask_sl = us_mask[:, :, z].astype(np.float32).T[::-1]
-
-        img_sl   = norm01(img_sl) * (mask_sl > 0)
-        filtered = speckle_reduce(img_sl)
-        enhanced_sl, _ = acoustic_shadow_energy(filtered)
-
-        ase_vol[:, :, z] = enhanced_sl[::-1].T
-
-    print("returning ASE filtered")
-    return ase_vol, header
+    result = result * us_mask
+    print(f"returning: {method}")
+    return result, header
 
 
 def compute_facet_collision_loss(pairings, transforms_list, case_names):
