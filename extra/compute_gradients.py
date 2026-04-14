@@ -16,16 +16,16 @@ import argparse
 
 
 # ── paths ──────────────────────────────────────────────────────────────────
-US_PATH = "/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/US_Vertebra_axial_cal/US_complete_cal.nrrd"
+US_PATH = "/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/US_Vertevra_axial_two_cal/aniso/aniso_preprocessed_gabor.nrrd"
 
 CT_PATHS = {
-    "L1": "/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/open/posterior_surface/CT_L1_posterior_surface.nrrd",
-    "L2": "/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/open/posterior_surface/CT_L2_posterior_surface.nrrd",
-    "L3": "/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/open/posterior_surface/CT_L3_posterior_surface.nrrd",
-    "L4": "/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/open/posterior_surface/CT_L4_posterior_surface.nrrd",
+    "L1": "/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/Known_Trans/sofa5/Cases/all_moving/L1_post.nrrd",
+    "L2": "/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/Known_Trans/sofa5/Cases/all_moving/L2_post.nrrd",
+    "L3": "/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/Known_Trans/sofa5/Cases/all_moving/L3_post.nrrd",
+    "L4": "/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/Known_Trans/sofa5/Cases/all_moving/L4_post.nrrd",
 }
 
-OUT_DIR = "/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/gradients"
+OUT_DIR = "/Users/elise/elisedonszelmann-lund/Masters_Utils/Pig_Data/pig2/Registration/gradients/sofa5_CT"
 
 # ── parameters ─────────────────────────────────────────────────────────────
 SIGMA = 1.0          # Gaussian smoothing sigma before derivative (in voxels)
@@ -184,20 +184,21 @@ def process_volume(volume, header, spacing, sigma, label, out_subdir, percentile
 
 # ── main ───────────────────────────────────────────────────────────────────
 def main():
-    # ---- US volume --------------------------------------------------------
-    print("\nLoading US volume...")
-    us_vol, us_header = nrrd.read(US_PATH)
-    us_spacing = get_spacing_from_header(us_header)
 
-    process_volume(
-        volume=us_vol,
-        header=us_header,
-        spacing=us_spacing,
-        sigma=SIGMA,
-        label="US",
-        out_subdir=OUT_DIR,
-        percentile=PERCENTILE,
-    )
+    # # ---- US volume --------------------------------------------------------
+    # print("\nLoading US volume...")
+    # us_vol, us_header = nrrd.read(US_PATH)
+    # us_spacing = get_spacing_from_header(us_header)
+
+    # process_volume(
+    #     volume=us_vol,
+    #     header=us_header,
+    #     spacing=us_spacing,
+    #     sigma=SIGMA,
+    #     label="US",
+    #     out_subdir=OUT_DIR,
+    #     percentile=PERCENTILE,
+    # )
 
     # ---- CT posterior surface volumes ------------------------------------
     for vertebra, ct_path in CT_PATHS.items():
