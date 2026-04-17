@@ -8,6 +8,10 @@ import nrrd
 from scipy.ndimage import gaussian_filter, white_tophat, grey_dilation,uniform_filter
 import nrrd
 from localization.ase_filter import norm01, speckle_reduce, acoustic_shadow_energy
+import cupy as cp
+import cupyx.scipy.ndimage as cpnd
+import torch
+import torch.nn.functional as F
 
 
 def rotation_to_angle_axis(R):
@@ -83,9 +87,103 @@ def compute_case_angular_error(flat_params, K, case_names, case_landmarks, cente
     return angular_errors
 
 
-    
+# def preprocess_US(input_path, method='tophat+aniso', sigma=1.0, size=5):
+#     """
+#     GPU-accelerated drop-in replacement. Same signature and behavior.
+#     method: comma/plus-separated combination of 'gaussian', 'tophat', 'aniso'
+#             e.g. 'tophat+aniso', 'gaussian', 'tophat', 'aniso', 'tophat+gaussian+aniso', 'none'
+#     sigma:  Gaussian sigma (used for both gaussian step and internal smoothing)
+#     size:   top-hat structuring element size
 
-# https://www.nature.com/articles/s41598-020-66468-x # can cite this
+#     Requirements: cupy, torch
+#     Falls back to CPU automatically if GPU is unavailable.
+#     """
+#     use_gpu = cp.cuda.is_available()
+
+#     data, header = nrrd.read(input_path)
+#     us_mask = (data != 0).astype(np.float32)
+#     result = data.astype(np.float32)
+
+#     if method == 'none':
+#         print("returning original (masked) only")
+#         return result * us_mask, header
+
+#     steps = method.replace(',', '+').split('+')
+
+#     if use_gpu:
+#         result_gpu = cp.asarray(result)
+
+#         for step in steps:
+#             if step == 'gaussian':
+#                 result_gpu = cpnd.gaussian_filter(result_gpu, sigma=sigma)
+#                 print("applied gaussian (GPU)")
+
+#             elif step == 'tophat':
+#                 # build a flat 3D box structuring element matching the original 2D size
+#                 selem = cp.ones((1, size, size), dtype=cp.uint8)
+#                 # erosion then subtract = white top-hat, done in one 3D pass (no slice loop)
+#                 from cupyx.scipy.ndimage import grey_erosion, grey_dilation
+#                 eroded   = grey_erosion(result_gpu, footprint=selem)
+#                 opened   = grey_dilation(eroded, footprint=selem)
+#                 enhanced = result_gpu - opened
+#                 result_gpu = cp.clip(result_gpu + enhanced, 0, 1)
+#                 print("applied tophat (GPU)")
+
+#             elif step == 'aniso':
+#                 # Perona-Malik anisotropic diffusion on GPU via PyTorch
+#                 # matches SimpleITK CurvatureAnisotropicDiffusionImageFilter behavior
+#                 vol = torch.from_numpy(cp.asnumpy(result_gpu)).float()
+#                 vol = vol.unsqueeze(0).unsqueeze(0).cuda()  # (1,1,D,H,W)
+
+#                 n_iter    = 10
+#                 timestep  = 0.0625
+#                 kappa     = 3.0   # matches ConductanceParameter
+
+#                 for _ in range(n_iter):
+#                     dz = F.pad(vol[:, :, 1:, :, :], (0, 0, 0, 0, 0, 1)) - vol
+#                     dy = F.pad(vol[:, :, :, 1:, :], (0, 0, 0, 1, 0, 0)) - vol
+#                     dx = F.pad(vol[:, :, :, :, 1:], (0, 1, 0, 0, 0, 0)) - vol
+#                     c_z = torch.exp(-(dz / kappa) ** 2)
+#                     c_y = torch.exp(-(dy / kappa) ** 2)
+#                     c_x = torch.exp(-(dx / kappa) ** 2)
+#                     vol = vol + timestep * (c_z * dz + c_y * dy + c_x * dx)
+
+#                 result_gpu = cp.asarray(vol.squeeze().cpu().numpy())
+#                 print("applied aniso (GPU)")
+
+#         result = cp.asnumpy(result_gpu * cp.asarray(us_mask))
+
+#     else:
+#         # CPU fallback — original implementation
+#         for step in steps:
+#             if step == 'gaussian':
+#                 result = gaussian_filter(result, sigma=sigma)
+#                 print("applied gaussian (CPU)")
+
+#             elif step == 'tophat':
+#                 enhanced = np.zeros_like(result)
+#                 for i in range(result.shape[0]):
+#                     enhanced[i] = white_tophat(result[i], size=size)
+#                 result = np.clip(result + enhanced, 0, 1)
+#                 print("applied tophat (CPU)")
+
+#             elif step == 'aniso':
+#                 sitk_img = sitk.Cast(sitk.GetImageFromArray(result), sitk.sitkFloat32)
+#                 flt = sitk.CurvatureAnisotropicDiffusionImageFilter()
+#                 flt.SetNumberOfIterations(10)
+#                 flt.SetTimeStep(0.0625)
+#                 flt.SetConductanceParameter(3.0)
+#                 result = sitk.GetArrayFromImage(flt.Execute(sitk_img))
+#                 print("applied aniso (CPU)")
+
+#         result = result * us_mask
+
+#     print(f"returning: {method}")
+#     return result, header
+
+
+    
+CPU version
 def preprocess_US(input_path, method='tophat+aniso', sigma=1.0, size=5):
     """
     method: comma/plus-separated combination of 'gaussian', 'tophat', 'aniso'

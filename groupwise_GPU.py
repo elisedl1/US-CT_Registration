@@ -46,7 +46,7 @@ class ExperimentType(Enum):
 
 
 # CHANGE THIS TO SELECT EXPERIMENT
-EXPERIMENT = ExperimentType.NORMAL
+EXPERIMENT = ExperimentType.MISSING_DATA
 SUCCESS_THRESH_MM = 2.01
 
 
