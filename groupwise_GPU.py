@@ -41,6 +41,7 @@ class ExperimentType(Enum):
     NORMAL = "normal"
     FULL_SWEEP = "full_sweep"
     MISSING_DATA = "missing_data"
+    SLICE_DATA = "slice_data"
     ROBUSTNESS = "robustness"
 
 
@@ -51,24 +52,24 @@ SUCCESS_THRESH_MM = 2.01
 
 def get_experiment_settings(exp_type):
     """define experiment-specific settings"""
-    if exp_type == ExperimentType.NORMAL:
+    if exp_type == ExperimentType.FULL_SWEEP:
         return {
             "us_files": ["US_complete_cal.nrrd"],
             "perturb": True,
-            "n_runs": 1
-        }
-    
-    if exp_type == ExperimentType.FULL_SWEEP:
-        return {
-            "us_files": ["US_full_L3_dropoutref_cal.nrrd"], 
-            "perturb": True,
-            "n_runs": 10
+            "n_runs": 30
         }
     
     if exp_type == ExperimentType.MISSING_DATA:
         return {
+            "us_files": ["US_full_L3_dropoutref_cal.nrrd"], 
+            "perturb": True,
+            "n_runs": 30
+        }
+    
+    if exp_type == ExperimentType.SLICE_DATA:
+        return {
             "us_files": ["US_missing_combined.nrrd"],
-            "perturb": False,
+            "perturb": True,
             "n_runs": 30
         }
     
@@ -188,18 +189,19 @@ def evaluate_group_cpu(flat_params, K, centers, sampled_positions_list,
 
 
     # CONSTRAINT VALUES
-    # lambda_axes = 0
-    lambda_axes = 0.01
+    lambda_axes = 0
+    # lambda_axes = 0.01
     # lambda_axes = linear_lambda(iteration, max_iter, lambda_final=0.01,  start_frac=0.25)
     # lambda_axes  = linear_lambda(iteration, max_iter, lambda_final=0.01,  start_frac=0.2)
 
 
-    # lambda_ivd = 0
-    lambda_ivd = 0.001
+    lambda_ivd = 0
+    # lambda_ivd = 0.001
     # lambda_ivd  = linear_lambda(iteration, max_iter, lambda_final=0.002, start_frac=0.25)
     # lambda_ivd   = linear_lambda(iteration, max_iter, lambda_final=0.002, start_frac=0.2)
     
-    lambda_facet = 0.001
+    lambda_facet = 0
+    # lambda_facet = 0.001
 
     axes_margins = {
         'LM': 2.0,
