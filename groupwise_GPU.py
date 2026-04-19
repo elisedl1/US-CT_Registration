@@ -189,19 +189,19 @@ def evaluate_group_cpu(flat_params, K, centers, sampled_positions_list,
 
 
     # CONSTRAINT VALUES
-    lambda_axes = 0
-    # lambda_axes = 0.01
+    # lambda_axes = 0
+    lambda_axes = 0.01
     # lambda_axes = linear_lambda(iteration, max_iter, lambda_final=0.01,  start_frac=0.25)
     # lambda_axes  = linear_lambda(iteration, max_iter, lambda_final=0.01,  start_frac=0.2)
 
 
-    lambda_ivd = 0
-    # lambda_ivd = 0.001
+    # lambda_ivd = 0
+    lambda_ivd = 0.001
     # lambda_ivd  = linear_lambda(iteration, max_iter, lambda_final=0.002, start_frac=0.25)
     # lambda_ivd   = linear_lambda(iteration, max_iter, lambda_final=0.002, start_frac=0.2)
     
-    lambda_facet = 0
-    # lambda_facet = 0.001
+    # lambda_facet = 0
+    lambda_facet = 0.001
 
     axes_margins = {
         'LM': 2.0,
@@ -308,8 +308,8 @@ def run_single_registration(fixed_file, cases_dir, mesh_dir, output_dir, case_na
         )
         centers.append(center)
 
-        target_file = f"/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans/sofa5/landmarks/US_{case}_landmarks.mrk.json"
-        source_file = f"/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans/sofa5/landmarks/CT_{case}_landmarks_intra.mrk.json"
+        target_file = f"/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans/sofa1/landmarks/US_{case}_landmarks.mrk.json"
+        source_file = f"/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans/sofa1/landmarks/CT_{case}_landmarks_intra.mrk.json"
 
         try:
             fixed_lm_parser  = SlicerJsonTagParser(target_file)
@@ -338,25 +338,13 @@ def run_single_registration(fixed_file, cases_dir, mesh_dir, output_dir, case_na
 
     start_time = time.time()
 
-    # CMA SETUP
-    x0        = np.tile(global_perturbation, K)
-    sigma0    = 0.25
-    base_stds = [0.01, 0.01, 0.01, 0.5, 0.5, 0.5]
-    cma_stds  = base_stds * K
-
-    popsize   = 60
-    parents   = 20
-    lower_per = [-0.4, -0.4, -0.4, -10, -10, -10]
-    upper_per = [ 0.4,  0.4,  0.4,  10,  10,  10]
-    lower     = lower_per * K
-    upper     = upper_per * K
-    max_iter  = 160
-
+    # GLOBAL REGISTRAITON
+    max_iter = 160
     partial_eval = partial(
-        evaluate_group_cpu,          # CPU version — picklable
+        evaluate_group_cpu,
         K=K,
         centers=centers,
-        sampled_positions_list=sampled_positions_list,   # numpy, no CUDA
+        sampled_positions_list=sampled_positions_list,
         moving_parsers=moving_parsers,
         fixed_parser=fixed_parser,
         case_centroids=case_centroids,
@@ -368,8 +356,63 @@ def run_single_registration(fixed_file, cases_dir, mesh_dir, output_dir, case_na
         max_iter=max_iter,
         device='cpu',
         profile=False,
-        compression_cap = 0.6
+        compression_cap=0.6
     )
+
+    def evaluate_global_rigid(single_params, iteration=0):
+        """same 6 params for all K vertebrae and evaluate."""
+        flat_params = np.tile(single_params, K)
+        result = partial_eval(flat_params, iteration=iteration)
+        return result[0]  # return total_loss only
+
+    print("\nRunning global rigid pre-alignment...")
+    global_rigid_start = time.time()
+
+    lower_global = [-0.4, -0.4, -0.4, -10, -10, -10]  # wider bounds for coarse search? 
+    upper_global = [ 0.4,  0.4,  0.4,  10,  10,  10]
+
+    es_global = cma.CMAEvolutionStrategy(
+        global_perturbation,   # start from the perturbed position
+        2.0,                   # larger sigma — coarse exploration
+        options={
+            'CMA_stds':  [0.05, 0.05, 0.05, 0.5, 0.5, 0.5], 
+            'popsize':   20,
+            'bounds':    [lower_global, upper_global],
+            'verb_disp': 0,
+            'maxiter':   50,   # short — just needs rough alignment
+            'tolfun':    1e-4,
+            'seed':      None
+        }
+    )
+
+    while not es_global.stop():
+        solutions_g = es_global.ask()
+        iteration_g = es_global.countiter
+        values_g = [evaluate_global_rigid(sol, iteration=iteration_g) for sol in solutions_g]
+        es_global.tell(solutions_g, values_g)
+
+    global_init = es_global.result.xbest
+    global_rigid_time = time.time() - global_rigid_start
+    print(f"  Global rigid alignment done in {global_rigid_time:.2f}s")
+    print(f"  Global init params — rot (deg): {np.rad2deg(global_init[:3])}, trans (mm): {global_init[3:]}")
+
+    
+    # GROUPWISE CMA - starts from globalinit
+
+    # CMA SETUP
+    # x0        = np.tile(global_perturbation, K)
+    x0        = np.tile(global_init, K)
+    sigma0    = 0.25
+    base_stds = [0.01, 0.01, 0.01, 0.5, 0.5, 0.5]
+    cma_stds  = base_stds * K
+
+    popsize   = 60
+    parents   = 20
+    lower_per = [-0.4, -0.4, -0.4, -10, -10, -10]
+    upper_per = [ 0.4,  0.4,  0.4,  10,  10,  10]
+    lower     = lower_per * K
+    upper     = upper_per * K
+
 
     es = cma.CMAEvolutionStrategy(
         x0, sigma0,
@@ -445,7 +488,7 @@ def run_single_registration(fixed_file, cases_dir, mesh_dir, output_dir, case_na
                 out_name = os.path.join(output_dir, f"TransformParameters_groupwise_{case}.h5")
 
             sitk.WriteTransform(tx, out_name)
-            print(f"  Wrote transform for {case}: {out_name}")
+        print(f"  Wrote transform for all cases: {out_name}")
 
     runtime = time.time() - start_time
     success, per_vertebra_success = success_from_tre(tre_after, SUCCESS_THRESH_MM)
@@ -475,9 +518,9 @@ if __name__ == "__main__":
     warnings.filterwarnings('ignore', category=DeprecationWarning)
     warnings.filterwarnings('ignore', message='.*NoneType.*check_attribute.*')
 
-    mesh_dir   = '/usr/local/data/elise/pig_data/pig2/Registration/cropped/sofa5'
-    cases_dir  = '/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans/sofa5/Cases'
-    output_dir = '/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans/sofa5/output_python_cma_group_allcases'
+    mesh_dir   = '/usr/local/data/elise/pig_data/pig2/Registration/cropped/sofa1'
+    cases_dir  = '/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans/sofa1/Cases'
+    output_dir = '/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans/sofa1/output_python_cma_group_allcases'
     os.makedirs(output_dir, exist_ok=True)
 
     case_names = sorted([
