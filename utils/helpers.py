@@ -213,7 +213,7 @@ def preprocess_US(input_path, method='tophat+aniso', sigma=1.0, size=5):
             for i in range(result.shape[0]):
                 enhanced[i] = white_tophat(result[i], size=size)
             result = np.clip(result + enhanced, 0, 1)
-            print("applied tophat")
+            # print("applied tophat")
 
         elif step == 'aniso':
             import SimpleITK as sitk
@@ -223,7 +223,7 @@ def preprocess_US(input_path, method='tophat+aniso', sigma=1.0, size=5):
             flt.SetTimeStep(0.0625)
             flt.SetConductanceParameter(3.0)
             result = sitk.GetArrayFromImage(flt.Execute(sitk_img))
-            print("applied aniso")
+            # print("applied aniso")
 
     result = result * us_mask
     print(f"returning: {method}")
