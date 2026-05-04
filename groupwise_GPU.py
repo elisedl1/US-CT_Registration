@@ -308,8 +308,12 @@ def run_single_registration(fixed_file, cases_dir, mesh_dir, output_dir, case_na
         )
         centers.append(center)
 
-        target_file = f"/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans/sofa1/landmarks/US_{case}_landmarks.mrk.json"
-        source_file = f"/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans/sofa1/landmarks/CT_{case}_landmarks_intra.mrk.json"
+        # target_file = f"/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans/sofa1/landmarks/US_{case}_landmarks.mrk.json"
+        # source_file = f"/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans/sofa1/landmarks/CT_{case}_landmarks_intra.mrk.json"
+
+        target_file = f"/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans_Native/sofa1/landmarks/US_{case}_landmarks.mrk.json"
+        source_file = f"/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans_Native/sofa1/landmarks/CT_{case}_landmarks_intra.mrk.json"
+
 
         try:
             fixed_lm_parser  = SlicerJsonTagParser(target_file)
@@ -518,9 +522,12 @@ if __name__ == "__main__":
     warnings.filterwarnings('ignore', category=DeprecationWarning)
     warnings.filterwarnings('ignore', message='.*NoneType.*check_attribute.*')
 
-    mesh_dir   = '/usr/local/data/elise/pig_data/pig2/Registration/cropped/sofa1'
-    cases_dir  = '/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans/sofa1/Cases'
-    output_dir = '/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans/sofa1/output_python_cma_group_allcases'
+    # mesh_dir   = '/usr/local/data/elise/pig_data/pig2/Registration/cropped/sofa1'
+    # cases_dir  = '/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans/sofa1/Cases'
+    # output_dir = '/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans/sofa1/output_python_cma_group_allcases'
+    mesh_dir   = '/usr/local/data/elise/pig_data/pig2/Registration/cropped_native/sofa1'
+    cases_dir  = '/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans_Native/sofa1/Cases'
+    output_dir = '/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans_Native/sofa1/output_python_cma_group_allcases'
     os.makedirs(output_dir, exist_ok=True)
 
     case_names = sorted([
