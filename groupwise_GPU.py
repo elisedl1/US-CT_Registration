@@ -46,7 +46,7 @@ class ExperimentType(Enum):
 
 
 # CHANGE THIS TO SELECT EXPERIMENT
-EXPERIMENT = ExperimentType.MISSING_DATA
+EXPERIMENT = ExperimentType.FULL_SWEEP
 SUCCESS_THRESH_MM = 2.01
 
 
@@ -56,7 +56,7 @@ def get_experiment_settings(exp_type):
         return {
             "us_files": ["US_complete_cal.nrrd"],
             "perturb": True,
-            "n_runs": 30
+            "n_runs": 10
         }
     
     if exp_type == ExperimentType.MISSING_DATA:
@@ -98,7 +98,8 @@ def init_results():
         "mean_sim_history": [],
         "axes_penalty_history": [],
         "ivd_loss_history": [],
-        "facet_loss_history": []
+        "facet_loss_history": [],
+        "perturbations": []
     }
 
 
@@ -244,6 +245,9 @@ def run_single_registration(fixed_file, cases_dir, mesh_dir, output_dir, case_na
     apply_perturbation, rng_seed=None, K=None, pairings=None, facet_pairings=None,
     track_metrics=False, save_transforms=False):
 
+    # ground truth sofa transformations
+    transforms_dir = os.path.join(os.path.dirname(cases_dir), 'transformations')
+
     if rng_seed is not None:
         rng = np.random.default_rng(rng_seed)
     else:
@@ -308,11 +312,11 @@ def run_single_registration(fixed_file, cases_dir, mesh_dir, output_dir, case_na
         )
         centers.append(center)
 
-        # target_file = f"/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans/sofa1/landmarks/US_{case}_landmarks.mrk.json"
-        # source_file = f"/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans/sofa1/landmarks/CT_{case}_landmarks_intra.mrk.json"
+        target_file = f"/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans/sofa1/landmarks/US_{case}_landmarks.mrk.json"
+        source_file = f"/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans/sofa1/landmarks/CT_{case}_landmarks_intra.mrk.json"
 
-        target_file = f"/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans_Native/sofa1/landmarks/US_{case}_landmarks.mrk.json"
-        source_file = f"/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans_Native/sofa1/landmarks/CT_{case}_landmarks_intra.mrk.json"
+        # target_file = f"/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans_Native/sofa1/landmarks/US_{case}_landmarks.mrk.json"
+        # source_file = f"/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans_Native/sofa1/landmarks/CT_{case}_landmarks_intra.mrk.json"
 
 
         try:
@@ -471,7 +475,8 @@ def run_single_registration(fixed_file, cases_dir, mesh_dir, output_dir, case_na
 
     # angular deviation
     angular_errors = compute_case_angular_error(
-        best_flat, K, case_names, case_landmarks, centers
+        best_flat, K, case_names, case_landmarks, centers,
+        transforms_dir=transforms_dir
     )
     for case in case_names:
         err = angular_errors.get(case)
@@ -492,6 +497,14 @@ def run_single_registration(fixed_file, cases_dir, mesh_dir, output_dir, case_na
                 out_name = os.path.join(output_dir, f"TransformParameters_groupwise_{case}.h5")
 
             sitk.WriteTransform(tx, out_name)
+
+        perturb_tx = sitk.Euler3DTransform()
+        perturb_tx.SetParameters(global_perturbation.tolist())
+        perturb_out = os.path.join(output_dir, "perturbation.h5")
+        sitk.WriteTransform(perturb_tx, perturb_out)
+        print(f"  Saved initial perturbation to: {perturb_out}")
+        print(f"  Wrote transform for all cases: {out_name}")
+
         print(f"  Wrote transform for all cases: {out_name}")
 
     runtime = time.time() - start_time
@@ -510,7 +523,7 @@ def run_single_registration(fixed_file, cases_dir, mesh_dir, output_dir, case_na
     if os.path.exists(temp_us_file):
         os.remove(temp_us_file)
 
-    return tre_before, tre_after, runtime, success, per_vertebra_success, metrics_dict, angular_errors
+    return tre_before, tre_after, runtime, success, per_vertebra_success, metrics_dict, angular_errors, global_perturbation
 
 
 # ============================================================================
@@ -522,12 +535,12 @@ if __name__ == "__main__":
     warnings.filterwarnings('ignore', category=DeprecationWarning)
     warnings.filterwarnings('ignore', message='.*NoneType.*check_attribute.*')
 
-    # mesh_dir   = '/usr/local/data/elise/pig_data/pig2/Registration/cropped/sofa1'
-    # cases_dir  = '/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans/sofa1/Cases'
-    # output_dir = '/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans/sofa1/output_python_cma_group_allcases'
-    mesh_dir   = '/usr/local/data/elise/pig_data/pig2/Registration/cropped_native/sofa1'
-    cases_dir  = '/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans_Native/sofa1/Cases'
-    output_dir = '/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans_Native/sofa1/output_python_cma_group_allcases'
+    mesh_dir   = '/usr/local/data/elise/pig_data/pig2/Registration/cropped/sofa1'
+    cases_dir  = '/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans/sofa1/Cases'
+    output_dir = '/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans/sofa1/output_python_cma_group_allcases'
+    # mesh_dir   = '/usr/local/data/elise/pig_data/pig2/Registration/cropped_native/sofa1'
+    # cases_dir  = '/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans_Native/sofa1/Cases'
+    # output_dir = '/usr/local/data/elise/pig_data/pig2/Registration/Known_Trans_Native/sofa1/output_python_cma_group_allcases'
     os.makedirs(output_dir, exist_ok=True)
 
     case_names = sorted([
@@ -579,7 +592,7 @@ if __name__ == "__main__":
 
             track_metrics = (EXPERIMENT == ExperimentType.NORMAL and settings["n_runs"] == 1)
 
-            tre_before, tre_after, runtime, success, per_vertebra_success, metrics_dict, angular_errors = run_single_registration(
+            tre_before, tre_after, runtime, success, per_vertebra_success, metrics_dict, angular_errors, perturbation = run_single_registration(
                 fixed_file=fixed_file,
                 cases_dir=cases_dir,
                 mesh_dir=mesh_dir,
@@ -591,7 +604,7 @@ if __name__ == "__main__":
                 pairings=pairings,
                 facet_pairings=facet_pairings,
                 track_metrics=track_metrics,
-                save_transforms=(EXPERIMENT == ExperimentType.NORMAL)
+                save_transforms=(settings["n_runs"] == 1)
             )
 
             all_results[us_file]["initial_tre"].append(tre_before)
@@ -600,6 +613,10 @@ if __name__ == "__main__":
             all_results[us_file]["success"].append(success)
             all_results[us_file]["per_vertebra_success"].append(per_vertebra_success)
             all_results[us_file]["angular_errors"].append(angular_errors) 
+            all_results[us_file].setdefault("perturbations", []).append({
+                "rotation_deg": np.rad2deg(perturbation[:3]).tolist(),
+                "translation_mm": perturbation[3:].tolist()
+            })
 
 
             print(f"  Runtime: {runtime:.1f}s")
@@ -613,7 +630,7 @@ if __name__ == "__main__":
                     print(f"  {case}: {tre_b:.2f} mm -> {tre_a:.2f} mm{ang_str}")
 
     # PLOTTING (normal single run only)
-    if EXPERIMENT == ExperimentType.NORMAL and settings["n_runs"] == 1:
+    if EXPERIMENT == ExperimentType.FULL_SWEEP and settings["n_runs"] == 1:
         for us_file in settings["us_files"]:
             if metrics_dict is not None:
                 mean_sim_arr     = -1 * np.array(metrics_dict['mean_sim'])
